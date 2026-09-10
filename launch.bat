@@ -40,6 +40,11 @@ if "%choice%"=="3" (
 if "%choice%"=="4" (
     echo Launching Production React Frontend...
     cd frontend
+    if not exist "node_modules\" (
+        echo [INFO] Installing frontend dependencies (first-time setup)...
+        call npm install
+    )
+    start "" "http://localhost:5173"
     call npm run dev
 )
 
