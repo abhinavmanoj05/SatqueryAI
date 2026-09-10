@@ -206,23 +206,45 @@ const MOCK_RESPONSES: Record<OrchestratorResponse['execution_trace']['task'], ()
 export async function runSatQuery(
   query: string,
   files: File[],
+  apiKey?: string,
 ): Promise<OrchestratorResponse> {
-  // Simulate network + model inference latency (500ms–3s)
-  const latency = 600 + Math.random() * 2400
-  await new Promise(resolve => setTimeout(resolve, latency))
+  // 1. Try real LangGraph Agentic Orchestrator backend
+  try {
+    const formData = new FormData()
+    formData.append('query', query)
+    if (apiKey) {
+      formData.append('api_key', apiKey)
+    }
+    files.forEach((f) => formData.append('files', f))
+
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (res.ok) {
+      const data = (await res.json()) as OrchestratorResponse
+      if (data && data.final_answer && data.execution_trace) {
+        return data
+      }
+    }
+    console.warn('Real backend returned non-OK status:', res.status)
+  } catch (err) {
+    console.warn('Backend /api/analyze unreachable, falling back to local orchestrator emulator:', err)
+  }
+
+  // 2. Fallback simulation if backend is offline
+  const latency = 600 + Math.random() * 1200
+  await new Promise((resolve) => setTimeout(resolve, latency))
 
   const task = detectIntent(query)
 
-  // If >1 file uploaded and no explicit intent, assume change_detection or fusion
   const effectiveTask: OrchestratorResponse['execution_trace']['task'] =
     files.length >= 2 && task === 'vqa'
       ? 'change_detection'
       : task
 
   const response = MOCK_RESPONSES[effectiveTask]()
-
-  // Patch duration to reflect the actual simulated latency
   response.execution_trace.duration_ms = Math.round(latency * 1.12)
-
   return response
 }

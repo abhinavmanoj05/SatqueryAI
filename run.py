@@ -83,9 +83,20 @@ def main():
             print("[!] Warning: npm install had issues. Attempting to start frontend anyway.")
 
     try:
-        # 1. Start Backend UI (Gradio)
+        # 1. Start Agentic Orchestrator FastAPI Backend (port 8000)
         if run_backend:
-            print("\n[+] Launching SatQuery AI Backend (ui.py)...")
+            print("\n[+] Launching SatQuery AI Orchestrator API (backend_api.py on port 8000)...")
+            api_cmd = [py_exe, "-m", "uvicorn", "backend_api:app", "--host", "127.0.0.1", "--port", "8000"]
+            api_proc = subprocess.Popen(
+                api_cmd,
+                cwd=str(ROOT_DIR),
+                env=os.environ.copy(),
+            )
+            procs.append(("Orchestrator API (FastAPI)", api_proc))
+            print("    -> Orchestrator API    : http://127.0.0.1:8000")
+
+            # 2. Start Interactive Gradio UI (port 7860)
+            print("\n[+] Launching SatQuery AI Interactive Assistant (ui.py on port 7860)...")
             backend_cmd = [py_exe, "ui.py"]
             backend_proc = subprocess.Popen(
                 backend_cmd,
@@ -93,9 +104,9 @@ def main():
                 env=os.environ.copy(),
             )
             procs.append(("Backend (Gradio)", backend_proc))
-            print("    -> Backend target URL : http://127.0.0.1:7860")
+            print("    -> Gradio Assistant    : http://127.0.0.1:7860")
 
-        # 2. Start Production Frontend (Vite)
+        # 3. Start Production Frontend (Vite on port 5173)
         if run_frontend:
             print("\n[+] Launching SatQuery AI Production Frontend (npm run dev)...")
             frontend_proc = subprocess.Popen(
@@ -110,7 +121,8 @@ def main():
         print("\n" + "=" * 65)
         print("  [SUCCESS] All services started!")
         print("  - Production Frontend : http://localhost:5173")
-        print("  - Gradio Backend UI   : http://127.0.0.1:7860")
+        print("  - Orchestrator API    : http://127.0.0.1:8000")
+        print("  - Gradio Assistant    : http://127.0.0.1:7860")
         print("  Press Ctrl+C at any time to gracefully terminate all services.")
         print("=" * 65 + "\n")
 
