@@ -176,6 +176,21 @@ class CDVQATool:
         built_up_pct = round(float((chg & (dbright > 0.10)).sum() / max(1, total_changed)) * 100, 1)
         veg_gain_pct = round(float((chg & (dveg > 0.08)).sum() / max(1, total_changed)) * 100, 1)
 
+        # Spatial cross-correlation between the two acquisitions
+        m1 = float(bright1.mean())
+        m2 = float(bright2.mean())
+        s1 = float(bright1.std())
+        s2 = float(bright2.std())
+        if s1 > 1e-5 and s2 > 1e-5:
+            spatial_corr = float(np.mean((bright1 - m1) * (bright2 - m2)) / (s1 * s2))
+        else:
+            spatial_corr = 1.0
+
+        # Disparate regions detection:
+        # If >80% of pixels changed or if >65% changed with near-zero spatial correlation,
+        # the two images almost certainly depict completely different places/footprints rather than true co-registered temporal change.
+        is_disparate = bool(pct_changed > 80.0 or (pct_changed > 65.0 and spatial_corr < 0.15))
+
         stats = {
             "total_changed_pixels": total_changed,
             "percentage_changed": pct_changed,
@@ -183,6 +198,13 @@ class CDVQATool:
             "built_up_expansion_percentage": built_up_pct,
             "vegetation_gain_percentage": veg_gain_pct,
             "active_hotspots": len(top_boxes),
+            "spatial_correlation": round(spatial_corr, 3),
+            "is_disparate_regions": is_disparate,
+            "alignment_warning": (
+                "Geospatial Discontinuity Detected: The two images exhibit extreme global divergence "
+                f"({pct_changed:.1f}% pixel disparity, spatial correlation {spatial_corr:.2f}). "
+                "They appear to depict completely different geographic regions rather than the same physical location over time."
+            ) if is_disparate else None,
         }
 
         return binary_mask, heatmap_b64, top_boxes, stats
@@ -214,7 +236,15 @@ class CDVQATool:
         v_loss = stats["vegetation_loss_percentage"]
         b_up = stats["built_up_expansion_percentage"]
 
-        if pct > 15:
+        if stats.get("is_disparate_regions"):
+            answer = (
+                f"⚠️ **Geospatial Discontinuity Warning**: The two uploaded scenes exhibit extreme global disparity "
+                f"({pct:.1f}% pixel delta with near-zero spatial correlation: {stats.get('spatial_correlation', 0.0):.2f}). "
+                f"These images appear to depict completely different geographic regions rather than a co-registered temporal sequence of the same place.\n\n"
+                f"Bi-temporal change detection requires observations of the same geographic footprint across time. "
+                f"Contrasting the two distinct scenes: Image 1 exhibits structural reflectance characteristics that diverge globally from Image 2."
+            )
+        elif pct > 15:
             answer = (
                 f"Significant multi-temporal surface variation detected across {pct:.1f}% of the scene. "
                 f"Breakdown: {b_up:.0f}% structural expansion/new reflective surfaces, {v_loss:.0f}% vegetation loss/clearing. "
