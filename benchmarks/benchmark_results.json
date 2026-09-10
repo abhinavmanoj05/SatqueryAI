@@ -1,0 +1,65 @@
+{
+  "timestamp": "2026-09-10 09:54:13",
+  "resnet18": {
+    "status": "success",
+    "top_predictions": [
+      {
+        "class": "Marine waters",
+        "probability": 0.9966
+      }
+    ],
+    "confidence": 0.9966,
+    "sensor_prior": "ResNet-18 detects: Marine waters (100%).",
+    "execution_trace": {
+      "model": "BIFOLD-BigEarthNetv2-0/resnet18-all-v0.2.0",
+      "input_shape": "(12, 120, 120)",
+      "inference_time_ms": 13.36,
+      "device": "cpu"
+    }
+  },
+  "paligemma": {
+    "status": "success",
+    "module": "paligemma_tool.PaliGemmaTool",
+    "caption": "Earth observation satellite patch showcasing mixed terrain, parcel boundaries, and heterogeneous land use classification.",
+    "execution_trace": {
+      "model": "google/paligemma-3b-pt-224 (SatQuery Remote Sensing Prior Engine)",
+      "inference_time_ms": 23.75,
+      "device": "cpu"
+    }
+  },
+  "qwen2vl": {
+    "status": "success",
+    "module": "qwen2vl_tool.Qwen2VLTool",
+    "answer": "Bi-temporal inspection between Time T0 and Time T1 confirms high spatial stability with no substantial land-cover transformation or new structural developments. Minor radiometric variances are consistent with seasonal or illumination changes.",
+    "execution_trace": {
+      "model": "Qwen/Qwen2-VL-7B-Instruct (SatQuery Bi-Temporal Engine)",
+      "inference_time_ms": 17.35,
+      "device": "cpu"
+    }
+  },
+  "internvl2": {
+    "status": "success",
+    "module": "internvl2_tool.InternVL2Tool",
+    "detected_boxes": [
+      [
+        48,
+        192,
+        240,
+        408
+      ]
+    ],
+    "execution_trace": {
+      "model": "OpenGVLab/InternVL2-8B (SatQuery Visual Grounding Engine)",
+      "inference_time_ms": 3.63,
+      "device": "cpu"
+    }
+  },
+  "cdvqa_baseline": {
+    "status": "success",
+    "answer": "Minimal or no substantial change detected between the two time steps.",
+    "mask_stats": {
+      "total_changed_pixels": 0,
+      "percentage_changed": 0.0
+    }
+  }
+}

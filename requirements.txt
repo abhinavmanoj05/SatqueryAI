@@ -1,0 +1,29 @@
+# Core ML & Vision-Language Models
+torch>=2.0.0
+transformers>=4.40.0
+peft>=0.10.0
+bitsandbytes>=0.43.0
+accelerate>=0.30.0
+timm>=0.9.0
+configilm>=0.4.0
+
+# Geospatial & Remote Sensing
+rasterio>=1.3.0
+geopandas>=0.14.0
+
+# Agentic Orchestration (LangGraph)
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
+# User Interface
+gradio>=4.0.0,<5.0.0
+
+# Data Processing & Utilities
+pydantic>=2.0.0
+numpy>=1.24.0
+Pillow>=9.0.0
+matplotlib>=3.5.0
+opencv-python-headless>=4.8.0
+pandas>=1.5.0
