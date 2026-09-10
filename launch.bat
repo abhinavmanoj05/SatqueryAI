@@ -15,13 +15,20 @@ if exist "ben_venv\Scripts\activate.bat" (
     echo [WARNING] ben_venv not found. Using system python.
 )
 
-echo [1] Launch Gradio Web UI (ui.py)
+echo [0] Launch Everything (Backend + Production React UI) - Recommended
+echo [1] Launch Gradio Web UI only (ui.py)
 echo [2] Run benchmark tests (benchmarks\test_all_models.py)
 echo [3] Quick ResNet-18 inference (scripts\run_real_inference.py)
-echo [4] Launch Production React Frontend (Vite UI)
+echo [4] Launch Production React Frontend only (Vite UI)
 echo.
 
-set /p choice="Select option (1/2/3/4): "
+set /p choice="Select option (0/1/2/3/4) [Default: 0]: "
+if "%choice%"=="" set choice=0
+
+if "%choice%"=="0" (
+    echo Launching complete SatQuery AI system...
+    python run.py
+)
 
 if "%choice%"=="1" (
     echo Launching Web UI...
