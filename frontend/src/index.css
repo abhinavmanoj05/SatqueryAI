@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────
+   Base resets & root token overrides
+───────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-white text-navy font-sans;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Scrollbar styling — light, minimal */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-navy-200 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-navy-400;
+  }
+
+  /* Focus visible outline — using saffron accent */
+  :focus-visible {
+    @apply outline-none ring-2 ring-saffron ring-offset-2;
+  }
+}
+
+/* ─────────────────────────────────────────────────
+   Utility classes
+───────────────────────────────────────────────── */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .section-pad {
+    @apply px-6 md:px-12 lg:px-20 xl:px-28;
+  }
+
+  /* Monospace trace panel text */
+  .trace-mono {
+    @apply font-mono text-xs leading-relaxed text-navy-700;
+  }
+
+  /* Confidence pill colours */
+  .confidence-high {
+    @apply bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300;
+  }
+  .confidence-medium {
+    @apply bg-amber-100 text-amber-800 ring-1 ring-amber-300;
+  }
+  .confidence-low {
+    @apply bg-red-100 text-red-800 ring-1 ring-red-300;
+  }
+
+  /* Upload drop zone highlighted state */
+  .drop-zone-active {
+    @apply border-saffron bg-saffron-50 ring-2 ring-saffron ring-offset-1;
+  }
+}
+
+/* ─────────────────────────────────────────────────
+   Three.js canvas — no pointer events on overlay
+───────────────────────────────────────────────── */
+.bas-canvas {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: none;
+}
+
+/* Allow orbit controls to still receive events */
+.bas-canvas-interactive {
+  pointer-events: auto;
+}

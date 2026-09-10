@@ -18,9 +18,10 @@ if exist "ben_venv\Scripts\activate.bat" (
 echo [1] Launch Gradio Web UI (ui.py)
 echo [2] Run benchmark tests (benchmarks\test_all_models.py)
 echo [3] Quick ResNet-18 inference (scripts\run_real_inference.py)
+echo [4] Launch Production React Frontend (Vite UI)
 echo.
 
-set /p choice="Select option (1/2/3): "
+set /p choice="Select option (1/2/3/4): "
 
 if "%choice%"=="1" (
     echo Launching Web UI...
@@ -35,6 +36,11 @@ if "%choice%"=="2" (
 if "%choice%"=="3" (
     echo Running ResNet-18 inference...
     python scripts\run_real_inference.py
+)
+if "%choice%"=="4" (
+    echo Launching Production React Frontend...
+    cd frontend
+    call npm run dev
 )
 
 pause
