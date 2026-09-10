@@ -97,12 +97,12 @@ User Query: "{query}"
 Number of Uploaded Imagery Files: {num_files}
 
 Available Specialist Pipelines & Models:
-1. "change_detection": Bi-temporal change detection (Requires 2 optical images). Uses CDVQA Baseline pixel differencing mask + Google Gemini 2.0 Flash / Qwen 2.5-VL for change reasoning.
-2. "fusion": Optical-SAR joint multi-modal analysis (Requires 1 Optical + 1 SAR image). Uses ViT-Base (BigEarthNet 12-channel) + Gemini 2.0 Flash.
-3. "land_cover_analysis": Land-cover classification (1 or 2 images). Uses ViT-Base (BigEarthNet 12-channel) + Gemini 2.0 Flash.
-4. "grounding": Text-guided spatial localization of features/objects (Requires 1 optical image). Uses Google Gemini 2.0 Flash coordinate grounding.
-5. "captioning": Detailed scene description of landscape and topography (Requires 1 optical image). Uses Gemini 2.0 Flash / PaliGemma.
-6. "vqa": Visual question answering on an image (Requires 1 image). Uses Gemini 2.0 Flash with ViT-Base sensor prior.
+1. "change_detection": Bi-temporal change detection (Requires 2 optical images). Uses CDVQA Baseline pixel differencing mask + Google Gemini 3.8 Flash for change reasoning.
+2. "fusion": Optical-SAR joint multi-modal analysis (Requires 1 Optical + 1 SAR image). Uses ViT-Base (BigEarthNet 12-channel) + Google Gemini 3.8 Flash.
+3. "land_cover_analysis": Land-cover classification (1 or 2 images). Uses ViT-Base (BigEarthNet 12-channel) + Google Gemini 3.8 Flash.
+4. "grounding": Text-guided spatial localization of features/objects (Requires 1 optical image). Uses Google Gemini 3.8 Flash coordinate grounding.
+5. "captioning": Detailed scene description of landscape and topography (Requires 1 optical image). Uses Google Gemini 3.8 Flash scene description.
+6. "vqa": Visual question answering on an image (Requires 1 image). Uses Google Gemini 3.8 Flash with ViT-Base sensor prior.
 7. "conversational": General conversation, greetings, remote sensing knowledge explanation, or guidance on what imagery to upload when 0 images are provided.
 
 You must respond ONLY with a valid JSON object with these exact keys:
@@ -142,7 +142,7 @@ def call_ollama_brain(query: str, num_files: int, model_name: str, host: str = "
                 input_count=int(data.get("input_count", 1 if num_files > 0 else 0)),
                 expected_modality=data.get("expected_modality", "optical"),
                 requires_spatial_output=bool(data.get("requires_spatial_output", False)),
-                models_to_invoke=data.get("models_to_invoke", ["ViT-Base", "Google Gemini 2.0 Flash"]),
+                models_to_invoke=data.get("models_to_invoke", ["ViT-Base", "Google Gemini 3.8 Flash"]),
                 direct_response=data.get("direct_response"),
                 provider_used=f"ollama:{model_name}",
             )
@@ -152,7 +152,7 @@ def call_ollama_brain(query: str, num_files: int, model_name: str, host: str = "
 
 
 def call_gemini_brain(query: str, num_files: int, api_key: str) -> Optional[BrainDecision]:
-    """Execute query comprehension and thinking through Google Gemini (Flash 3 / Flash 2.0)."""
+    """Execute query comprehension and thinking through Google Gemini (Flash 3.8 / Flash 2.0)."""
     prompt = _build_brain_prompt(query, num_files)
     headers = {"Content-Type": "application/json"}
     payload = {
@@ -165,11 +165,13 @@ def call_gemini_brain(query: str, num_files: int, api_key: str) -> Optional[Brai
     candidate_models = [
         os.environ.get("GEMINI_MODEL"),
         "gemini-3.8-flash",
+        "gemini-3.7-flash",
         "gemini-3-flash-preview",
         "gemini-flash-latest",
         "gemini-2.5-flash-lite",
         "gemini-3.5-flash",
         "gemini-2.0-flash",
+        "gemini-2.0-flash-exp",
     ]
     models_to_try = []
     for m in candidate_models:
@@ -244,14 +246,11 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
                 provider_used="rule_engine",
             )
 
-    # 1. Change detection (Strictly requires 2 images)
-    if num_files >= 2 and (
-        any(k in q for k in ["change", "before and after", "compare these two", "difference between", "what changed", "over time", "bi-temporal"])
-        or any(k in q for k in ["then", "now", "between"])
-    ):
+    # 1. Change detection (Requires 2 images)
+    if any(k in q for k in ["change", "before and after", "compare these two", "difference between", "what changed", "over time", "bi-temporal"]) or any(k in q for k in ["then", "now", "between"]):
         return BrainDecision(
             task="change_detection",
-            thinking="Detected temporal comparison semantics with 2 images provided. Routing to CDVQA Baseline for pixel differencing mask computation and Gemini 3.8 Flash for multi-temporal change reasoning.",
+            thinking="Detected temporal comparison semantics. Routing to CDVQA Baseline for pixel differencing mask computation and Gemini 3.8 Flash for multi-temporal change reasoning.",
             input_count=2,
             expected_modality="optical",
             requires_spatial_output=True,
@@ -260,7 +259,7 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
         )
 
     # 2. Optical-SAR Fusion (Requires 2 images: Optical + SAR)
-    if num_files >= 2 and any(k in q for k in ["sar", "radar", "optical and sar", "fuse", "fusion", "both images together", "combine the images"]):
+    if any(k in q for k in ["sar", "radar", "optical and sar", "fuse", "fusion", "both images together", "combine the images", "together to identify"]):
         return BrainDecision(
             task="fusion",
             thinking="Query requests joint SAR and optical sensor fusion. Routing to local PyTorch ViT-Base (BigEarthNet 12-channel) to extract sensor priors from VV, VH, and 10 Sentinel-2 bands, synthesizing with Gemini 3.8 Flash.",
@@ -320,22 +319,23 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
 
 
 def call_omniroute_brain(query: str, num_files: int, api_key: str) -> Optional[BrainDecision]:
-    """Execute query comprehension via local Omniroute inference server (OpenAI-compatible)."""
+    """Execute query comprehension via local or remote Omniroute inference server (OpenAI-compatible)."""
     prompt = _build_brain_prompt(query, num_files)
-    url = "http://localhost:20128/v1/chat/completions"
+    base_url = os.environ.get("OMNIROUTE_BASE_URL", "http://localhost:20128/v1").rstrip("/")
+    url = f"{base_url}/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
-        "model": "gpt-4o-mini",
+        "model": os.environ.get("OMNIROUTE_MODEL", "gpt-4o-mini"),
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "max_tokens": 700,
     }
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=12)
+        resp = requests.post(url, headers=headers, json=payload, timeout=3)
         if resp.status_code == 200:
             data = resp.json()
             raw_text = data["choices"][0]["message"]["content"].strip()
-            parsed = json.loads(raw_text)
+            parsed = json.loads(_clean_json_string(raw_text))
             return BrainDecision(
                 task=parsed.get("task", "vqa"),
                 thinking=parsed.get("thinking", "OmniRoute inference parsed query intent and determined optimal specialist pipeline."),

@@ -648,8 +648,9 @@ class ResNet18Tool:
         return results
 
 
-# Export alias for clarity
+# Export aliases for clarity
 ViTBaseTool = ResNet18Tool
+BigEarthNetClassifierTool = ResNet18Tool
 
 
 # Standalone demonstration and testing

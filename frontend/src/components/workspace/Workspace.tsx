@@ -25,18 +25,12 @@ export default function Workspace() {
     })
   }, [])
 
-  // Seed sessions
+  // Initial session
   const [sessions, setSessions] = useState<Session[]>([
     {
       id: 'session-1',
-      title: 'Agricultural Land Classification & LAI',
-      createdAt: 'Today, 11:20 AM',
-      messages: [],
-    },
-    {
-      id: 'session-2',
-      title: 'Bi-Temporal Delta & Urban Sprawl',
-      createdAt: 'Yesterday, 04:15 PM',
+      title: 'Satellite Intelligence Workspace',
+      createdAt: 'Active Session',
       messages: [],
     },
   ])

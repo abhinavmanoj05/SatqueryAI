@@ -27,6 +27,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import requests
 from dotenv import load_dotenv
 from PIL import Image
@@ -36,16 +37,22 @@ load_dotenv()
 
 
 def get_api_key(provided_key: Optional[str] = None) -> Tuple[Optional[str], str]:
-    """Retrieve API key and identify provider ('gemini' or 'openrouter')."""
+    """Retrieve API key and identify provider ('gemini', 'openrouter', or 'omniroute')."""
     if provided_key:
         k = provided_key.strip()
         if k.startswith("sk-or-"):
             return k, "openrouter"
+        if k.startswith("sk-"):
+            return k, "omniroute"
         return k, "gemini"
 
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key and gemini_key.strip():
         return gemini_key.strip(), "gemini"
+
+    omniroute_key = os.environ.get("OMNIRoute_API_KEY") or os.environ.get("OMNIROUTE_API_KEY")
+    if omniroute_key and omniroute_key.strip():
+        return omniroute_key.strip(), "omniroute"
 
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     if openrouter_key and openrouter_key.strip():
@@ -54,14 +61,43 @@ def get_api_key(provided_key: Optional[str] = None) -> Tuple[Optional[str], str]
     return None, "none"
 
 
+def normalize_raster_image(img: Image.Image) -> Image.Image:
+    """
+    Normalize multi-bit, float32 SAR (dB), or single-channel images into clean 8-bit RGB.
+    Prevents Sentinel-1 SAR negative dB values (-25 to -5 dB) from clipping to pitch black.
+    """
+    if img.mode in ("F", "I", "I;16", "I;16B", "I;16L", "I;16S"):
+        arr = np.array(img, dtype=np.float32)
+        valid = arr[np.isfinite(arr)]
+        if valid.size > 0:
+            p2 = float(np.percentile(valid, 2))
+            p98 = float(np.percentile(valid, 98))
+            if p98 > p2:
+                arr = np.clip((arr - p2) / (p98 - p2) * 255.0, 0, 255).astype(np.uint8)
+            else:
+                arr = np.zeros_like(arr, dtype=np.uint8)
+        else:
+            arr = np.zeros_like(arr, dtype=np.uint8)
+        return Image.fromarray(arr).convert("RGB")
+    elif img.mode == "L":
+        return img.convert("RGB")
+    elif img.mode == "RGBA":
+        return img.convert("RGB")
+    elif img.mode != "RGB":
+        return img.convert("RGB")
+    return img
+
+
 def encode_image_to_base64(image_input: Union[str, Path, Image.Image]) -> str:
-    """Convert an image file path or PIL Image to base64 JPEG string."""
+    """Convert an image file path or PIL Image to base64 JPEG string with robust raster normalization."""
     if isinstance(image_input, (str, Path)):
-        img = Image.open(image_input).convert("RGB")
+        raw_img = Image.open(image_input)
     elif isinstance(image_input, Image.Image):
-        img = image_input.convert("RGB")
+        raw_img = image_input
     else:
         raise ValueError(f"Unsupported image type: {type(image_input)}")
+
+    img = normalize_raster_image(raw_img)
 
     max_dim = 1536
     if max(img.size) > max_dim:
@@ -131,6 +167,8 @@ def call_live_vlm(
             "gemini-flash-latest",
             "gemini-2.5-flash-lite",
             "gemini-flash-lite-latest",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-exp",
         ]
         # Deduplicate while preserving order
         models_to_try = []
@@ -213,6 +251,34 @@ def call_live_vlm(
 
         if text is None:
             raise RuntimeError(last_error or "Failed to obtain response from Gemini API.")
+
+    elif provider == "omniroute":
+        base_url = os.environ.get("OMNIROUTE_BASE_URL", "http://localhost:20128/v1").rstrip("/")
+        model_name = preferred_model or "gpt-4o-mini"
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        content = [{"type": "text", "text": prompt}]
+        for img in images:
+            b64 = encode_image_to_base64(img)
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            })
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": content}],
+            "max_tokens": 1024,
+            "temperature": 0.15,
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=25)
+        if resp.status_code != 200:
+            raise RuntimeError(f"OmniRoute API error ({resp.status_code}): {resp.text}")
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"].strip()
+        model_display = f"OmniRoute ({model_name})"
 
     else:
         # OpenRouter (Qwen 2.5-VL 72B Instruct)

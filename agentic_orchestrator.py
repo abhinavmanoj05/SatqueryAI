@@ -259,10 +259,6 @@ def task_router(state: SatQueryState) -> Dict[str, Any]:
     if not val.get("is_valid"):
         return {"routing_decision": "error"}
 
-    files = state.get("uploaded_files", [])
-    if len(files) == 0:
-        return {"routing_decision": "conversational_node"}
-
     task = (state.get("intent") or {}).get("primary_task", "vqa")
     return {"routing_decision": _ROUTING_MAP.get(task, "vqa_node")}
 
@@ -342,6 +338,7 @@ def captioning_node(state: SatQueryState) -> Dict[str, Any]:
         tool = _get_model("paligemma")
         cap_res = tool.generate_caption(image_path)
         caption_text = cap_res.get("caption", "")
+        model_name = "PaliGemma-3B"
         duration_ms = 950.0
 
     return {
@@ -350,7 +347,7 @@ def captioning_node(state: SatQueryState) -> Dict[str, Any]:
             "captioning": {
                 "caption": caption_text,
                 "confidence": 0.88,
-                "model": "Google Gemini 2.0 Flash",
+                "model": model_name,
                 "duration_ms": duration_ms,
             },
         }
@@ -358,7 +355,7 @@ def captioning_node(state: SatQueryState) -> Dict[str, Any]:
 
 
 def grounding_node(state: SatQueryState) -> Dict[str, Any]:
-    """Text-guided region grounding with coordinate detection using Gemini 2.0 Flash."""
+    """Text-guided region grounding with coordinate detection using Gemini 3.8 Flash."""
     files = state["validation_result"]["validated_files"]
     image_path = _resolve_image_path(files[0]["path"])
     query = state["user_query"]
@@ -385,6 +382,7 @@ def grounding_node(state: SatQueryState) -> Dict[str, Any]:
             for i, b in enumerate(raw_boxes) if len(b) == 4
         ]
         answer = f"Visual grounding completed for query '{query}'."
+        model_name = "InternVL2-8B"
         duration_ms = 1450.0
 
     return {
@@ -395,7 +393,7 @@ def grounding_node(state: SatQueryState) -> Dict[str, Any]:
                 "boxes": formatted_boxes,
                 "answer": answer,
                 "confidence": 0.85 if formatted_boxes else 0.65,
-                "model": "Google Gemini 2.0 Flash",
+                "model": model_name,
                 "duration_ms": duration_ms,
             },
         }
@@ -547,9 +545,7 @@ def fusion_node(state: SatQueryState) -> Dict[str, Any]:
                 "confidence": vit_res.get("confidence", 0.85),
                 "models": [
                     "ViT-Base (BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0)",
-                    "Google Gemini 2.0 Flash",
-                    "ResNet-18",
-                    "InternVL2-8B",
+                    vlm_model if "vlm_model" in locals() else "Google Gemini 3.8 Flash",
                 ],
                 "duration_ms": (
                     vit_res.get("execution_trace", {}).get("inference_time_ms", 350.0)
@@ -628,15 +624,15 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
     elif "vqa" in tool_outputs:
         final_answer = tool_outputs["vqa"]["answer"]
         confidence = tool_outputs["vqa"].get("confidence", 0.88)
-        model_used = tool_outputs["vqa"].get("model", "InternVL2-8B")
-        execution_trace["models_used"] = [model_used] if "InternVL2" in model_used else [model_used, "InternVL2-8B"]
+        model_used = tool_outputs["vqa"].get("model", "Google Gemini 3.8 Flash")
+        execution_trace["models_used"] = [model_used]
         execution_trace["duration_ms"] = tool_outputs["vqa"].get("duration_ms", 1200.0)
 
     elif "captioning" in tool_outputs:
         final_answer = tool_outputs["captioning"].get("caption") or tool_outputs["captioning"].get("answer", "")
         confidence = tool_outputs["captioning"].get("confidence", 0.88)
-        model_used = tool_outputs["captioning"].get("model", "PaliGemma-3B")
-        execution_trace["models_used"] = [model_used] if "PaliGemma" in model_used else [model_used, "PaliGemma-3B"]
+        model_used = tool_outputs["captioning"].get("model", "Google Gemini 3.8 Flash")
+        execution_trace["models_used"] = [model_used]
         execution_trace["duration_ms"] = tool_outputs["captioning"].get("duration_ms", 950.0)
 
     elif "grounding" in tool_outputs:
@@ -644,8 +640,8 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
         final_answer = tool_outputs["grounding"].get("answer") or f"Located region(s) for: {tool_outputs['grounding'].get('query', '')}"
         visual_evidence = {"boxes": boxes}
         confidence = tool_outputs["grounding"].get("confidence", 0.85)
-        model_used = tool_outputs["grounding"].get("model", "InternVL2-8B")
-        execution_trace["models_used"] = [model_used] if "InternVL2" in model_used else [model_used, "InternVL2-8B"]
+        model_used = tool_outputs["grounding"].get("model", "Google Gemini 3.8 Flash")
+        execution_trace["models_used"] = [model_used]
         execution_trace["duration_ms"] = tool_outputs["grounding"].get("duration_ms", 1450.0)
 
     elif "change_detection" in tool_outputs:
@@ -658,8 +654,8 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
             "transition": cd.get("transition", ""),
         }
         confidence = cd.get("confidence", 0.88)
-        model_used = cd.get("model", "Qwen2-VL-7B")
-        execution_trace["models_used"] = [model_used, "Qwen2-VL-7B"] if model_used != "Qwen2-VL-7B" else [model_used]
+        model_used = cd.get("model", "CDVQA + Google Gemini 3.8 Flash")
+        execution_trace["models_used"] = [model_used] if isinstance(model_used, str) else list(model_used)
         execution_trace["duration_ms"] = cd.get("duration_ms", 2000.0)
 
     elif "fusion" in tool_outputs:
@@ -668,7 +664,7 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
         resnet_prior = f_data.get("resnet_prior", {})
         visual_evidence = {"top_k": resnet_prior.get("top_k", f_data.get("top_k", []))}
         confidence = resnet_prior.get("confidence", f_data.get("confidence", 0.85))
-        execution_trace["models_used"] = f_data.get("models", ["ViT-Base", "ResNet-18", "InternVL2-8B"])
+        execution_trace["models_used"] = f_data.get("models", ["ViT-Base (BigEarthNet 12-channel)", "Google Gemini 3.8 Flash"])
         sensor_prior = resnet_prior.get("sensor_prior", f_data.get("sensor_prior", ""))
         execution_trace["parameters"]["sensor_prior"] = sensor_prior
         execution_trace["duration_ms"] = f_data.get("duration_ms", 1650.0)

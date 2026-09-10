@@ -15,44 +15,30 @@ if exist "ben_venv\Scripts\activate.bat" (
     echo [WARNING] ben_venv not found. Using system python.
 )
 
-echo [0] Launch Everything (Backend + Production React UI) - Recommended
-echo [1] Launch Gradio Web UI only (ui.py)
+echo [0] Launch SatQuery AI Unified App (http://127.0.0.1:8000) - Recommended
+echo [1] Launch in Development Mode (Vite Dev Server + API)
 echo [2] Run benchmark tests (benchmarks\test_all_models.py)
-echo [3] Quick ResNet-18 inference (scripts\run_real_inference.py)
-echo [4] Launch Production React Frontend only (Vite UI)
+echo [3] Quick ViT-Base inference (scripts\run_vit_inference.py)
 echo.
 
-set /p choice="Select option (0/1/2/3/4) [Default: 0]: "
+set /p choice="Select option (0/1/2/3) [Default: 0]: "
 if "%choice%"=="" set choice=0
 
 if "%choice%"=="0" (
-    echo Launching complete SatQuery AI system...
+    echo Launching SatQuery AI Unified Server...
     python run.py
 )
-
 if "%choice%"=="1" (
-    echo Launching Web UI...
-    echo Access the Web UI in your browser at: http://127.0.0.1:7860
-    start "" "http://127.0.0.1:7860"
-    python ui.py
+    echo Launching SatQuery AI in Development Mode...
+    python run.py --dev
 )
 if "%choice%"=="2" (
     echo Running benchmark suite...
     python benchmarks\test_all_models.py
 )
 if "%choice%"=="3" (
-    echo Running ResNet-18 inference...
-    python scripts\run_real_inference.py
-)
-if "%choice%"=="4" (
-    echo Launching Production React Frontend...
-    cd frontend
-    if not exist "node_modules\" (
-        echo [INFO] Installing frontend dependencies (first-time setup)...
-        call npm install
-    )
-    start "" "http://localhost:5173"
-    call npm run dev
+    echo Running ViT-Base inference...
+    python scripts\run_vit_inference.py
 )
 
 pause

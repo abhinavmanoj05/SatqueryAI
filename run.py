@@ -1,14 +1,15 @@
 """
 SatQuery AI - Unified Single-Command Application Runner
 ======================================================
-Launches both the SatQuery AI specialist model backend (Gradio on port 7860)
-and the Production React + Three.js 3D Frontend (Vite on port 5173) simultaneously.
+Launches the SatQuery AI unified application on http://127.0.0.1:8000.
+FastAPI serves both the production React SPA (from frontend/dist)
+and the Agentic Orchestrator REST endpoints (/api/analyze, /api/models, /api/health).
 
 Usage:
-    python run.py
-    python run.py --backend-only
-    python run.py --frontend-only
-    python run.py --no-browser
+    python run.py                   # Production mode: single server on port 8000 (No Node.js needed)
+    python run.py --dev             # Development mode: Vite on 5173 + FastAPI on 8000
+    python run.py --no-browser      # Run without opening browser
+    python run.py --port 8000       # Specify custom port
 """
 
 import argparse
@@ -30,6 +31,7 @@ if sys.platform == "win32":
 
 ROOT_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
+FRONTEND_DIST = FRONTEND_DIR / "dist"
 
 
 def get_python_executable() -> str:
@@ -44,96 +46,86 @@ def get_python_executable() -> str:
     return sys.executable
 
 
-def ensure_frontend_deps() -> bool:
-    """Check if node_modules exists in frontend/; install if missing."""
-    node_modules = FRONTEND_DIR / "node_modules"
-    if node_modules.exists():
+def ensure_frontend_built() -> bool:
+    """Ensure frontend/dist exists. If missing, runs npm run build."""
+    if (FRONTEND_DIST / "index.html").exists():
         return True
 
     print("=" * 60)
-    print("  [Setup] Installing frontend dependencies (first-time run)...")
+    print("  [Setup] Building production frontend (first-time build)...")
     print("=" * 60)
-    shell_cmd = "npm install"
+    shell_cmd = "npm run build"
     res = subprocess.run(shell_cmd, cwd=str(FRONTEND_DIR), shell=True)
     return res.returncode == 0
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SatQuery AI Unified Runner")
-    parser.add_argument("--backend-only", action="store_true", help="Launch only the Gradio backend UI (port 7860)")
-    parser.add_argument("--frontend-only", action="store_true", help="Launch only the React frontend (port 5173)")
+    parser = argparse.ArgumentParser(description="SatQuery AI Unified Application Runner")
+    parser.add_argument("--dev", action="store_true", help="Launch in development mode (Vite dev server on 5173 + API on 8000)")
+    parser.add_argument("--port", type=int, default=8000, help="Port to host SatQuery AI (default: 8000)")
     parser.add_argument("--no-browser", action="store_true", help="Do not automatically open the browser")
     args = parser.parse_args()
-
-    run_backend = not args.frontend_only
-    run_frontend = not args.backend_only
 
     procs = []
 
     print("=" * 65)
-    print("  [SatQuery AI] - Unified Launcher")
+    print("  [SatQuery AI v2] - Unified Application Server")
     print("=" * 65)
 
     py_exe = get_python_executable()
     print(f"[*] Python Interpreter : {py_exe}")
     print(f"[*] Workspace Root     : {ROOT_DIR}")
 
-    if run_frontend:
-        if not ensure_frontend_deps():
-            print("[!] Warning: npm install had issues. Attempting to start frontend anyway.")
+    if not args.dev:
+        if not ensure_frontend_built():
+            print("[!] Warning: Frontend build had issues. Falling back to dev mode.")
+            args.dev = True
 
     try:
-        # 1. Start Agentic Orchestrator FastAPI Backend (port 8000)
-        if run_backend:
-            print("\n[+] Launching SatQuery AI Orchestrator API (backend_api.py on port 8000)...")
-            api_cmd = [py_exe, "-m", "uvicorn", "backend_api:app", "--host", "127.0.0.1", "--port", "8000"]
-            api_proc = subprocess.Popen(
-                api_cmd,
-                cwd=str(ROOT_DIR),
-                env=os.environ.copy(),
-            )
-            procs.append(("Orchestrator API (FastAPI)", api_proc))
-            print("    -> Orchestrator API    : http://127.0.0.1:8000")
+        # 1. Start Agentic Orchestrator FastAPI Backend
+        print(f"\n[+] Launching SatQuery AI Unified Server (backend_api.py on port {args.port})...")
+        api_cmd = [py_exe, "-m", "uvicorn", "backend_api:app", "--host", "127.0.0.1", "--port", str(args.port)]
+        api_proc = subprocess.Popen(
+            api_cmd,
+            cwd=str(ROOT_DIR),
+            env=os.environ.copy(),
+        )
+        procs.append(("SatQuery AI Server (FastAPI)", api_proc))
 
-            # 2. Start Interactive Gradio UI (port 7860)
-            print("\n[+] Launching SatQuery AI Interactive Assistant (ui.py on port 7860)...")
-            backend_cmd = [py_exe, "ui.py"]
-            backend_proc = subprocess.Popen(
-                backend_cmd,
-                cwd=str(ROOT_DIR),
-                env=os.environ.copy(),
-            )
-            procs.append(("Backend (Gradio)", backend_proc))
-            print("    -> Gradio Assistant    : http://127.0.0.1:7860")
+        target_url = f"http://127.0.0.1:{args.port}"
 
-        # 3. Start Production Frontend (Vite on port 5173)
-        if run_frontend:
-            print("\n[+] Launching SatQuery AI Production Frontend (npm run dev)...")
-            frontend_proc = subprocess.Popen(
+        # 2. If development mode requested, also launch Vite hot-reload server
+        if args.dev:
+            print("\n[+] Launching Vite Development Server (npm run dev on port 5173)...")
+            dev_proc = subprocess.Popen(
                 "npm run dev",
                 cwd=str(FRONTEND_DIR),
                 shell=True,
                 env=os.environ.copy(),
             )
-            procs.append(("Frontend (Vite)", frontend_proc))
-            print("    -> Frontend target URL: http://localhost:5173")
+            procs.append(("Frontend Dev Server (Vite)", dev_proc))
+            target_url = "http://localhost:5173"
 
         print("\n" + "=" * 65)
-        print("  [SUCCESS] All services started!")
-        print("  - Production Frontend : http://localhost:5173")
-        print("  - Orchestrator API    : http://127.0.0.1:8000")
-        print("  - Gradio Assistant    : http://127.0.0.1:7860")
-        print("  Press Ctrl+C at any time to gracefully terminate all services.")
+        print("  [SUCCESS] SatQuery AI is running!")
+        if args.dev:
+            print("  - Mode                : Development (Hot Reloading)")
+            print(f"  - Application UI      : {target_url}")
+            print(f"  - Orchestrator API    : http://127.0.0.1:{args.port}")
+        else:
+            print("  - Mode                : Production (Unified Single Server)")
+            print(f"  - Application URL     : {target_url}")
+            print("  - Active Models       : ViT-Base, Google Gemini 3.8 Flash, CDVQA")
+        print("  Press Ctrl+C at any time to gracefully terminate.")
         print("=" * 65 + "\n")
 
-        # Give servers a few seconds to initialize before opening browser
+        # Give server time to bind before opening browser
         if not args.no_browser:
-            time.sleep(3)
-            target_url = "http://localhost:5173" if run_frontend else "http://127.0.0.1:7860"
+            time.sleep(2)
             print(f"[*] Opening {target_url} in your default browser...")
             webbrowser.open(target_url)
 
-        # Keep parent alive and monitor child processes
+        # Monitor child processes
         while True:
             for name, proc in procs:
                 ret = proc.poll()
@@ -143,7 +135,7 @@ def main():
             time.sleep(1)
 
     except KeyboardInterrupt:
-        print("\n[*] Shutting down SatQuery AI services...")
+        print("\n[*] Shutting down SatQuery AI...")
     finally:
         for name, proc in procs:
             if proc.poll() is None:

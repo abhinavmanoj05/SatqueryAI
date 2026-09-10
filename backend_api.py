@@ -23,6 +23,7 @@ from typing import List, Optional
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
@@ -147,6 +148,12 @@ async def analyze(
                     t.unlink()
             except Exception:
                 pass
+
+
+# Mount built React production frontend if frontend/dist exists
+FRONTEND_DIST = _ROOT / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
 
 
 if __name__ == "__main__":
