@@ -19,6 +19,15 @@ import time
 import webbrowser
 from pathlib import Path
 
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 ROOT_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
@@ -62,7 +71,7 @@ def main():
     procs = []
 
     print("=" * 65)
-    print("  🛰️  SatQuery AI - Unified Launcher")
+    print("  [SatQuery AI] - Unified Launcher")
     print("=" * 65)
 
     py_exe = get_python_executable()
@@ -99,7 +108,7 @@ def main():
             print("    -> Frontend target URL: http://localhost:5173")
 
         print("\n" + "=" * 65)
-        print("  ✅ All services started!")
+        print("  [SUCCESS] All services started!")
         print("  - Production Frontend : http://localhost:5173")
         print("  - Gradio Backend UI   : http://127.0.0.1:7860")
         print("  Press Ctrl+C at any time to gracefully terminate all services.")
