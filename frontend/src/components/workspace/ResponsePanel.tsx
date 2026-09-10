@@ -31,7 +31,7 @@ export default function ResponsePanel({ messages, isLoading, onOpenReport }: Res
         </div>
         <h3 className="text-base font-semibold text-navy mb-1">SatQuery AI Workspace</h3>
         <p className="text-xs text-navy-500 max-w-md leading-relaxed">
-          Upload satellite imagery in the panel above and type your analysis query below.
+          Upload satellite imagery in the dropzone below or attach files directly in the chat bar.
           The cognitive LangGraph orchestrator will reason about your request, select specialist models, and ground answers with visual evidence.
         </p>
       </div>

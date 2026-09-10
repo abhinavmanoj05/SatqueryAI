@@ -267,10 +267,17 @@ export default function Workspace() {
           onToggle={() => setSidebarOpen((v) => !v)}
         />
 
-        {/* Center Panel (Upload + Response + Input) */}
+        {/* Center Panel (Response + Upload + Input) */}
         <main className="flex-1 flex flex-col bg-white overflow-hidden min-w-0">
-          {/* Collapsible Image Upload Zone */}
-          <div className="border-b border-navy-100 bg-sky-base/20">
+          {/* Response Feed Area (SatQuery AI Workspace) */}
+          <ResponsePanel
+            messages={activeSession.messages}
+            isLoading={isLoading}
+            onOpenReport={() => setIsReportModalOpen(true)}
+          />
+
+          {/* Collapsible Image Upload Zone (Positioned below workspace response panel) */}
+          <div className="border-t border-navy-100 bg-sky-base/20">
             <div className="flex items-center justify-between px-4 py-2 border-b border-navy-100/60 text-xs">
               <div className="flex items-center gap-2 text-navy-700 font-semibold">
                 <Layers className="w-3.5 h-3.5 text-saffron" />
@@ -284,11 +291,11 @@ export default function Workspace() {
               <button
                 type="button"
                 onClick={() => setShowUploadZone((v) => !v)}
-                className="text-navy-500 hover:text-navy font-medium flex items-center gap-1 text-[11px] transition-colors"
+                className="text-navy-500 hover:text-navy font-medium flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
                 title={showUploadZone ? 'Minimize Dropzone' : 'Expand Dropzone'}
               >
                 <span>{showUploadZone ? 'Minimize Dropzone' : 'Expand Dropzone'}</span>
-                {showUploadZone ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {showUploadZone ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
               </button>
             </div>
             {showUploadZone && (
@@ -306,13 +313,6 @@ export default function Workspace() {
               </div>
             )}
           </div>
-
-          {/* Response Feed Area */}
-          <ResponsePanel
-            messages={activeSession.messages}
-            isLoading={isLoading}
-            onOpenReport={() => setIsReportModalOpen(true)}
-          />
 
           {/* Chat / Query Bar */}
           <ChatInput onSend={handleSendQuery} isLoading={isLoading} />
