@@ -259,7 +259,10 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
         )
 
     # 2. Optical-SAR Fusion (Requires 2 images: Optical + SAR)
-    if any(k in q for k in ["sar", "radar", "optical and sar", "fuse", "fusion", "both images together", "combine the images", "together to identify"]):
+    fusion_keywords = ["optical and sar", "fuse", "fusion", "both images together", "combine the images", "together to identify", "cross-sensor", "cross sensor"]
+    is_fusion_explicit = any(k in q for k in fusion_keywords)
+    is_sar_optical_multi = num_files >= 2 and any(k in q for k in ["sar", "radar"]) and any(k in q for k in ["optical", "rgb", "sentinel-2", "s2"])
+    if is_fusion_explicit or is_sar_optical_multi or (num_files >= 2 and any(k in q for k in ["fuse", "fusion", "combine"])):
         return BrainDecision(
             task="fusion",
             thinking="Query requests joint SAR and optical sensor fusion. Routing to local PyTorch ViT-Base (BigEarthNet 12-channel) to extract sensor priors from VV, VH, and 10 Sentinel-2 bands, synthesizing with Gemini 3.8 Flash.",
@@ -272,11 +275,12 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
 
     # 3. Land cover classification
     if any(k in q for k in ["land cover", "land-cover", "classify", "land use", "landuse"]):
+        is_sar = any(k in q for k in ["sar", "radar", "s1"])
         return BrainDecision(
             task="land_cover_analysis",
             thinking="Land cover categorization requested. Executing ViT-Base multi-label classification across the 19 BigEarthNet CORINE classes to determine land-use distribution.",
             input_count=max(1, min(num_files, 2)),
-            expected_modality="both" if num_files >= 2 else "optical",
+            expected_modality="both" if num_files >= 2 else ("sar" if is_sar else "any"),
             requires_spatial_output=True,
             models_to_invoke=["ViT-Base (BigEarthNet 12-channel)"],
             provider_used="rule_engine",
@@ -307,11 +311,12 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
         )
 
     # Default VQA (Single-image analysis on either optical or SAR)
+    is_sar_query = any(k in q for k in ["sar", "radar", "s1"])
     return BrainDecision(
         task="vqa",
         thinking="Standard visual question answering query. Invoking ViT-Base for initial multispectral/SAR sensor prior generation and Google Gemini 3.8 Flash for evidence-grounded answer formulation.",
         input_count=max(1, min(num_files, 1)),
-        expected_modality="optical",
+        expected_modality="sar" if is_sar_query else "optical",
         requires_spatial_output=False,
         models_to_invoke=["ViT-Base (BigEarthNet 12-channel)", "Google Gemini 3.8 Flash"],
         provider_used="rule_engine",

@@ -209,8 +209,8 @@ def validation_gate(state: SatQueryState) -> Dict[str, Any]:
     optical_files = [f for f in files if f.get("modality", "optical") == "optical"]
     sar_files = [f for f in files if f.get("modality") == "sar"]
 
-    if len(files) == 1 and task in ("vqa", "captioning", "land_cover_analysis", "grounding"):
-        # Single image tasks work with any supported satellite modality (Optical or SAR)
+    if task in ("vqa", "captioning", "land_cover_analysis", "grounding") and len(files) >= 1:
+        # These tasks work with any supported satellite modality (Optical, SAR, or both)
         pass
     else:
         if len(files) < expected_count:
@@ -221,9 +221,9 @@ def validation_gate(state: SatQueryState) -> Dict[str, Any]:
             errors.append("Expected at least one SAR image, but none was uploaded.")
         elif expected_modality == "both":
             if not optical_files:
-                errors.append("Fusion/land-cover analysis requires an optical image, but none was uploaded.")
+                errors.append("Fusion requires an optical image, but none was uploaded.")
             if not sar_files:
-                errors.append("Fusion/land-cover analysis requires a SAR image, but none was uploaded.")
+                errors.append("Fusion requires a SAR image, but none was uploaded.")
 
     for f in files:
         fmt = str(f.get("format", "")).lstrip(".").lower()
@@ -494,19 +494,35 @@ def change_detection_node(state: SatQueryState) -> Dict[str, Any]:
 
 
 def fusion_node(state: SatQueryState) -> Dict[str, Any]:
-    """Optical-SAR fusion: ViT-Base 12-channel classifier + Gemini 2.0 Flash."""
+    """Optical-SAR fusion & land-cover analysis: ViT-Base 12-channel classifier + Gemini 3.8 Flash."""
     files = state["validation_result"]["validated_files"]
     optical_file = next((f for f in files if f.get("modality", "optical") == "optical"), None)
     sar_file = next((f for f in files if f.get("modality") == "sar"), None)
 
     task = (state.get("intent") or {}).get("primary_task", "fusion")
-    if task == "fusion" and (not optical_file or not sar_file):
-        return {"error": "Fusion requires both optical and SAR images."}
+    if task == "fusion":
+        if not optical_file or not sar_file:
+            if len(files) >= 2:
+                if not optical_file:
+                    optical_file = files[0]
+                if not sar_file:
+                    sar_file = files[1]
+            else:
+                return {"error": "Fusion requires both optical and SAR images."}
 
-    if not optical_file:
-        return {"error": "Optical image is required for land-cover analysis."}
+    # For land cover analysis or single-modality inputs, resolve imagery flexibly
+    if not optical_file and not sar_file:
+        if files:
+            first_f = files[0]
+            first_p = Path(first_f.get("path", "")).name.lower()
+            if first_f.get("modality") == "sar" or any(s in first_p for s in ["s1", "vh", "vv", "sar"]):
+                sar_file = first_f
+            else:
+                optical_file = first_f
+        else:
+            return {"error": "Satellite imagery is required for land-cover analysis."}
 
-    opt_path = _resolve_image_path(optical_file["path"], default_to_post=False)
+    opt_path = _resolve_image_path(optical_file["path"], default_to_post=False) if optical_file else None
     sar_path = _resolve_image_path(sar_file["path"], default_to_post=True) if sar_file else None
 
     # Real local PyTorch ViT-Base 12-channel model
@@ -519,20 +535,29 @@ def fusion_node(state: SatQueryState) -> Dict[str, Any]:
 
     query = state["user_query"]
     api_key = state.get("api_key")
+    pref_model = state.get("preferred_model")
+
+    input_images = [p for p in [opt_path, sar_path] if p]
+    primary_img = opt_path if opt_path else sar_path
 
     try:
+        modality_desc = "multimodal optical-SAR" if (opt_path and sar_path) else ("SAR radar" if sar_path else "optical multispectral")
         vlm_prompt = (
-            f"You are a remote sensing intelligence analyst. ViT-Base 12-channel multispectral classifier "
-            f"derived the following sensor prior: {sensor_prior}.\n"
+            f"You are an expert Earth Observation and remote sensing intelligence analyst. "
+            f"ViT-Base 12-channel multispectral classifier analyzed this {modality_desc} satellite imagery "
+            f"and derived the following sensor prior: {sensor_prior}.\n"
             f"User Query: {query}\n"
-            f"Synthesize an evidence-grounded remote sensing report analyzing the land cover, features, and imagery."
+            f"Synthesize an evidence-grounded remote sensing report analyzing the land cover, detected terrain features, and spatial patterns."
         )
-        vlm_answer, vlm_model, vlm_ms = call_live_vlm(vlm_prompt, [opt_path], api_key=api_key)
+        vlm_answer, vlm_model, vlm_ms = call_live_vlm(
+            vlm_prompt, input_images, api_key=api_key, preferred_model=pref_model
+        )
     except Exception:
         internvl_tool = _get_model("internvl2")
-        vlm_res = internvl_tool.vqa(opt_path, query, sensor_prior=sensor_prior)
+        vlm_res = internvl_tool.vqa(primary_img, query, sensor_prior=sensor_prior)
         vlm_answer = vlm_res.get("answer", f"ViT-Base Classification: {sensor_prior}")
         vlm_ms = 1300.0
+        vlm_model = "InternVL2-8B"
 
     return {
         "tool_outputs": {
@@ -545,7 +570,7 @@ def fusion_node(state: SatQueryState) -> Dict[str, Any]:
                 "confidence": vit_res.get("confidence", 0.85),
                 "models": [
                     "ViT-Base (BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0)",
-                    vlm_model if "vlm_model" in locals() else "Google Gemini 3.8 Flash",
+                    vlm_model,
                 ],
                 "duration_ms": (
                     vit_res.get("execution_trace", {}).get("inference_time_ms", 350.0)

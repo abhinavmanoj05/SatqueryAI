@@ -269,7 +269,7 @@ class ResNet18Tool:
 
     def load_bands(
         self,
-        s2_path: Any,
+        s2_path: Optional[Any] = None,
         s1_path: Optional[Any] = None,
     ) -> np.ndarray:
         """
@@ -279,7 +279,7 @@ class ResNet18Tool:
         - BigEarthNet v2.0 directories or individual band files (.tif/.tiff)
         - Standalone 12-band, multi-band, or single-band GeoTIFFs
         - Multiple file selections (list of paths)
-        - Single standard RGB images (.png, .jpg, .jpeg)
+        - Standard RGB and grayscale images (.png, .jpg, .jpeg) for Optical, SAR, or Optical-SAR pairs
         - Auto-pairing with bundled sample BigEarthNet data if only S1 or S2 is provided
 
         Returns:
@@ -329,28 +329,85 @@ class ResNet18Tool:
                 if sample_p.exists():
                     all_paths = [sample_p]
 
-        # Case 0: RGB image (.png, .jpg, .jpeg)
-        if len(all_paths) == 1 and all_paths[0].is_file() and all_paths[0].suffix.lower() in [".png", ".jpg", ".jpeg"]:
+        # Case 0: Standard image files (.png, .jpg, .jpeg) - Optical, SAR, or Optical-SAR pair
+        png_candidates = [p for p in all_paths if p.is_file() and p.suffix.lower() in [".png", ".jpg", ".jpeg"]]
+        if png_candidates and len(png_candidates) == len(all_paths):
             from PIL import Image
-            img = Image.open(all_paths[0]).convert("RGB").resize((120, 120))
-            rgb_arr = np.array(img, dtype=np.float32)
-            r = rgb_arr[..., 0] * 25.0
-            g = rgb_arr[..., 1] * 25.0
-            b = rgb_arr[..., 2] * 25.0
-            band_arrays = {
-                "VV": (r * 0.5 + g * 0.5) / 255.0 * 20.0 - 15.0,
-                "VH": (g * 0.7 + b * 0.3) / 255.0 * 20.0 - 20.0,
-                "B02": b,
-                "B03": g,
-                "B04": r,
-                "B05": (r * 0.5 + g * 0.5),
-                "B06": g * 1.2,
-                "B07": g * 1.4,
-                "B08": g * 1.5,
-                "B8A": g * 1.5,
-                "B11": (r * 0.8 + g * 0.2),
-                "B12": r * 0.7,
-            }
+
+            # Differentiate optical vs SAR
+            s2_cand = next((p for p in s2_paths if p.suffix.lower() in [".png", ".jpg", ".jpeg"]), None)
+            s1_cand = next((p for p in s1_paths if p.suffix.lower() in [".png", ".jpg", ".jpeg"]), None)
+
+            if not s2_cand and not s1_cand:
+                for p in png_candidates:
+                    p_name = p.name.lower()
+                    if ("s1" in p_name or "sar" in p_name or "vv" in p_name or "vh" in p_name) and not s1_cand:
+                        s1_cand = p
+                    elif not s2_cand:
+                        s2_cand = p
+
+            if not s2_cand and len(png_candidates) == 1 and not s1_cand:
+                # If single file doesn't look like SAR, treat as optical
+                p_name = png_candidates[0].name.lower()
+                if "s1" in p_name or "sar" in p_name or "vv" in p_name or "vh" in p_name:
+                    s1_cand = png_candidates[0]
+                else:
+                    s2_cand = png_candidates[0]
+
+            band_arrays = {}
+
+            if s2_cand and s2_cand.exists():
+                img = Image.open(s2_cand).convert("RGB").resize((120, 120))
+                rgb_arr = np.array(img, dtype=np.float32)
+                r = rgb_arr[..., 0] * 25.0
+                g = rgb_arr[..., 1] * 25.0
+                b = rgb_arr[..., 2] * 25.0
+                band_arrays["B02"] = b
+                band_arrays["B03"] = g
+                band_arrays["B04"] = r
+                band_arrays["B05"] = (r * 0.5 + g * 0.5)
+                band_arrays["B06"] = g * 1.2
+                band_arrays["B07"] = g * 1.4
+                band_arrays["B08"] = g * 1.5
+                band_arrays["B8A"] = g * 1.5
+                band_arrays["B11"] = (r * 0.8 + g * 0.2)
+                band_arrays["B12"] = r * 0.7
+
+            if s1_cand and s1_cand.exists():
+                s1_img = Image.open(s1_cand).resize((120, 120))
+                if s1_img.mode == "L":
+                    sar_arr = np.array(s1_img, dtype=np.float32)
+                    band_arrays["VV"] = (sar_arr / 255.0) * 20.0 - 15.0
+                    band_arrays["VH"] = (sar_arr / 255.0) * 20.0 - 22.0
+                else:
+                    s1_rgb = s1_img.convert("RGB")
+                    sar_arr = np.array(s1_rgb, dtype=np.float32)
+                    band_arrays["VV"] = (sar_arr[..., 0] / 255.0) * 20.0 - 15.0
+                    band_arrays["VH"] = (sar_arr[..., 1] / 255.0) * 20.0 - 22.0
+
+            # If only optical was provided, synthesize SAR from optical
+            if "VV" not in band_arrays:
+                r = band_arrays.get("B04", np.zeros((120, 120), dtype=np.float32))
+                g = band_arrays.get("B03", np.zeros((120, 120), dtype=np.float32))
+                b = band_arrays.get("B02", np.zeros((120, 120), dtype=np.float32))
+                band_arrays["VV"] = (r * 0.5 + g * 0.5) / 255.0 * 20.0 - 15.0
+                band_arrays["VH"] = (g * 0.7 + b * 0.3) / 255.0 * 20.0 - 20.0
+
+            # If only SAR was provided, synthesize optical from SAR backscatter
+            if "B04" not in band_arrays:
+                vv = band_arrays.get("VV", np.zeros((120, 120), dtype=np.float32))
+                base = np.clip((vv + 25.0) / 25.0 * 255.0 * 20.0, 50.0, 4000.0)
+                band_arrays["B02"] = base * 0.8
+                band_arrays["B03"] = base * 0.9
+                band_arrays["B04"] = base * 0.95
+                band_arrays["B05"] = base * 1.1
+                band_arrays["B06"] = base * 1.3
+                band_arrays["B07"] = base * 1.4
+                band_arrays["B08"] = base * 1.5
+                band_arrays["B8A"] = base * 1.5
+                band_arrays["B11"] = base * 1.2
+                band_arrays["B12"] = base * 1.0
+
             return np.stack([band_arrays[bname] for bname in self.band_order], axis=0)
 
         # Case 1: Single combined 12-band GeoTIFF file
@@ -501,8 +558,8 @@ class ResNet18Tool:
 
     def predict(
         self,
-        s2_path: Union[str, Path],
-        s1_path: Optional[Union[str, Path]] = None,
+        s2_path: Optional[Union[str, Path, List[Any]]] = None,
+        s1_path: Optional[Union[str, Path, List[Any]]] = None,
         top_k: int = 10,
     ) -> Dict[str, Any]:
         """
