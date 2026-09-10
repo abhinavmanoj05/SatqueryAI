@@ -285,11 +285,21 @@ class ResNet18Tool:
         Returns:
             Stacked numpy array of shape (12, 120, 120).
         """
-        # Workspace bundled data locations
-        workspace = Path(__file__).resolve().parent
-        data_dir = workspace / "reben-training-scripts" / "scripts" / "data"
-        s1_default_dir = data_dir / "S1" / "S1A_IW_GRDH_1SDV_20170613T165043_33UUP_65_63"
-        s2_default_dir = data_dir / "S2" / "S2A_MSIL2A_20180526T100031_N9999_R122_T34WFU_14_23"
+        # Workspace and system data locations
+        repo_root = Path(__file__).resolve().parent.parent
+        data_dir = repo_root / "reben-training-scripts" / "scripts" / "data"
+        desktop_data = Path(r"C:\Users\DELLG15\Desktop\data")
+
+        # Check candidate locations for S1 and S2
+        s1_default_dir = None
+        s2_default_dir = None
+        for candidate_base in [desktop_data, data_dir]:
+            cand_s1 = candidate_base / "S1" / "S1A_IW_GRDH_1SDV_20170613T165043_33UUP_65_63"
+            cand_s2 = candidate_base / "S2" / "S2A_MSIL2A_20180526T100031_N9999_R122_T34WFU_14_23"
+            if cand_s1.exists() and s1_default_dir is None:
+                s1_default_dir = cand_s1
+            if cand_s2.exists() and s2_default_dir is None:
+                s2_default_dir = cand_s2
 
         def _to_path_list(p: Any) -> List[Path]:
             if p is None:
@@ -310,12 +320,12 @@ class ResNet18Tool:
 
         # If completely empty, use bundled sample BigEarthNet patch
         if not all_paths:
-            if s2_default_dir.exists() and s1_default_dir.exists():
+            if s2_default_dir and s1_default_dir and s2_default_dir.exists() and s1_default_dir.exists():
                 s2_paths = [s2_default_dir]
                 s1_paths = [s1_default_dir]
                 all_paths = s2_paths + s1_paths
             else:
-                sample_p = workspace / "sample_patch_rgb.png"
+                sample_p = repo_root / "scripts" / "sample_patch_rgb.png"
                 if sample_p.exists():
                     all_paths = [sample_p]
 
@@ -375,9 +385,9 @@ class ResNet18Tool:
                         detected_s1_dir = p.parent
 
         # Default fallbacks if one sensor wasn't provided
-        if detected_s2_dir is None and s2_default_dir.exists():
+        if detected_s2_dir is None and s2_default_dir and s2_default_dir.exists():
             detected_s2_dir = s2_default_dir
-        if detected_s1_dir is None and s1_default_dir.exists():
+        if detected_s1_dir is None and s1_default_dir and s1_default_dir.exists():
             detected_s1_dir = s1_default_dir
 
         # Collect candidate pool of GeoTIFF files

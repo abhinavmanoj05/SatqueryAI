@@ -63,7 +63,14 @@ export default function Workspace() {
   }
 
   const handleAddFiles = (newFiles: UploadedFile[]) => {
-    setUploadedFiles((prev) => [...prev, ...newFiles])
+    if (uploadMode === 'single') {
+      setUploadedFiles(newFiles.slice(0, 1))
+    } else {
+      setUploadedFiles((prev) => {
+        const combined = [...prev, ...newFiles]
+        return combined.slice(-2)
+      })
+    }
   }
 
   const handleRemoveFile = (index: number) => {

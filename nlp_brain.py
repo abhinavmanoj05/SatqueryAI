@@ -244,27 +244,30 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
                 provider_used="rule_engine",
             )
 
-    # 1. Change detection
-    if any(k in q for k in ["change", "before and after", "compare these two", "difference between", "what changed", "over time", "bi-temporal"]) or (num_files >= 2 and any(k in q for k in ["then", "now", "between"])):
+    # 1. Change detection (Strictly requires 2 images)
+    if num_files >= 2 and (
+        any(k in q for k in ["change", "before and after", "compare these two", "difference between", "what changed", "over time", "bi-temporal"])
+        or any(k in q for k in ["then", "now", "between"])
+    ):
         return BrainDecision(
             task="change_detection",
-            thinking="Detected temporal comparison semantics. Routing to CDVQA Baseline for pixel differencing mask computation and Gemini 2.0 Flash for multi-temporal land-cover change reasoning.",
+            thinking="Detected temporal comparison semantics with 2 images provided. Routing to CDVQA Baseline for pixel differencing mask computation and Gemini 3.8 Flash for multi-temporal change reasoning.",
             input_count=2,
             expected_modality="optical",
             requires_spatial_output=True,
-            models_to_invoke=["CDVQA Baseline", "Google Gemini 2.0 Flash"],
+            models_to_invoke=["CDVQA Baseline", "Google Gemini 3.8 Flash"],
             provider_used="rule_engine",
         )
 
-    # 2. Optical-SAR Fusion
-    if any(k in q for k in ["sar", "radar", "optical and sar", "fuse", "fusion", "both images together", "combine the images"]):
+    # 2. Optical-SAR Fusion (Requires 2 images: Optical + SAR)
+    if num_files >= 2 and any(k in q for k in ["sar", "radar", "optical and sar", "fuse", "fusion", "both images together", "combine the images"]):
         return BrainDecision(
             task="fusion",
-            thinking="Query requests joint SAR and optical sensor fusion. Routing to local PyTorch ViT-Base (BigEarthNet 12-channel) to extract sensor priors from VV, VH, and 10 Sentinel-2 bands, synthesizing with Gemini 2.0 Flash.",
+            thinking="Query requests joint SAR and optical sensor fusion. Routing to local PyTorch ViT-Base (BigEarthNet 12-channel) to extract sensor priors from VV, VH, and 10 Sentinel-2 bands, synthesizing with Gemini 3.8 Flash.",
             input_count=2,
             expected_modality="both",
             requires_spatial_output=True,
-            models_to_invoke=["ViT-Base (BigEarthNet 12-channel)", "Google Gemini 2.0 Flash"],
+            models_to_invoke=["ViT-Base (BigEarthNet 12-channel)", "Google Gemini 3.8 Flash"],
             provider_used="rule_engine",
         )
 
@@ -284,11 +287,11 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
     if any(k in q for k in ["highlight", "locate", "point out", "circle", "outline", "mark the", "bounding box", "where is", "find the"]):
         return BrainDecision(
             task="grounding",
-            thinking="Spatial localization requested. Directing to Gemini 2.0 Flash coordinate localization engine to detect normalized 2D bounding boxes for targeted features.",
+            thinking="Spatial localization requested. Directing to Gemini 3.8 Flash coordinate localization engine to detect normalized 2D bounding boxes for targeted features.",
             input_count=1,
             expected_modality="optical",
             requires_spatial_output=True,
-            models_to_invoke=["Google Gemini 2.0 Flash"],
+            models_to_invoke=["Google Gemini 3.8 Flash"],
             provider_used="rule_engine",
         )
 
@@ -296,22 +299,22 @@ def call_rule_based_brain(query: str, num_files: int) -> BrainDecision:
     if any(k in q for k in ["describe", "caption", "summarize the scene", "what does this image show", "give a description"]):
         return BrainDecision(
             task="captioning",
-            thinking="High-level scene description requested. Routing to Gemini 2.0 Flash for comprehensive remote sensing landscape and terrain characterization.",
+            thinking="High-level scene description requested. Routing to Gemini 3.8 Flash for comprehensive remote sensing landscape and terrain characterization.",
             input_count=1,
             expected_modality="optical",
             requires_spatial_output=False,
-            models_to_invoke=["Google Gemini 2.0 Flash"],
+            models_to_invoke=["Google Gemini 3.8 Flash"],
             provider_used="rule_engine",
         )
 
-    # Default VQA
+    # Default VQA (Single-image analysis on either optical or SAR)
     return BrainDecision(
         task="vqa",
-        thinking="Standard visual question answering query. Invoking ViT-Base for initial multispectral sensor prior generation and Google Gemini 2.0 Flash for evidence-grounded answer formulation.",
+        thinking="Standard visual question answering query. Invoking ViT-Base for initial multispectral/SAR sensor prior generation and Google Gemini 3.8 Flash for evidence-grounded answer formulation.",
         input_count=max(1, min(num_files, 1)),
         expected_modality="optical",
         requires_spatial_output=False,
-        models_to_invoke=["ViT-Base (BigEarthNet 12-channel)", "Google Gemini 2.0 Flash"],
+        models_to_invoke=["ViT-Base (BigEarthNet 12-channel)", "Google Gemini 3.8 Flash"],
         provider_used="rule_engine",
     )
 
@@ -550,6 +553,19 @@ def understand_query_with_nlp_brain(
 
         if not decision:
             decision = call_rule_based_brain(query, num_files)
+
+        decision.task = "conversational"
+        decision.input_count = 0
+        decision.expected_modality = "none"
+        if not decision.direct_response:
+            decision.direct_response = (
+                f"I understand your query: *\"{query}\"*.\n\n"
+                "To execute this analysis, please **upload satellite imagery** using the panel above:\n"
+                "• **Single Image Analysis** (VQA, Captioning, Grounding): Upload 1 Optical or SAR GeoTIFF/PNG.\n"
+                "• **Bi-Temporal Change Detection**: Upload 2 acquisition dates (T0 pre-event and T1 post-event).\n"
+                "• **Optical-SAR Fusion**: Upload 1 Sentinel-2 optical image + 1 Sentinel-1 SAR image.\n\n"
+                "Once uploaded, submit your prompt to trigger the specialist model ensemble."
+            )
 
         decision.allocation_trace = build_allocation_trace(
             task="conversational",

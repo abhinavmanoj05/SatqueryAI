@@ -156,11 +156,12 @@ def make_query_parser(llm: Optional[Any] = None):
             decision = understand_query_with_nlp_brain(
                 query, num_files, api_key=api_key, preferred_model=pref_model
             )
+            task = "conversational" if num_files == 0 else decision.task
             intent = IntentSchema(
-                primary_task=decision.task,
-                input_count=decision.input_count,
-                requires_spatial_output=decision.requires_spatial_output,
-                expected_modality=decision.expected_modality if decision.expected_modality in ("optical", "sar", "both", "none") else "optical",
+                primary_task=task,
+                input_count=0 if num_files == 0 else decision.input_count,
+                requires_spatial_output=decision.requires_spatial_output if num_files > 0 else False,
+                expected_modality="none" if num_files == 0 else (decision.expected_modality if decision.expected_modality in ("optical", "sar", "both", "none") else "optical"),
             )
             thinking = decision.thinking
             conversational_answer = decision.direct_response
@@ -191,13 +192,13 @@ def validation_gate(state: SatQueryState) -> Dict[str, Any]:
     task = intent.get("primary_task", "vqa")
     errors = []
 
-    # Conversational queries with 0 files uploaded bypass image file validation
-    if (task == "conversational" or state.get("conversational_answer")) and len(files) == 0:
+    # 1. Conversational / zero-file queries always pass validation
+    if len(files) == 0:
         return {
             "validation_result": {
                 "is_valid": True,
                 "error_message": None,
-                "validated_files": files,
+                "validated_files": [],
             },
             "error": None,
         }
@@ -205,24 +206,27 @@ def validation_gate(state: SatQueryState) -> Dict[str, Any]:
     expected_modality = intent.get("expected_modality", "optical")
     expected_count = intent.get("input_count", 1)
 
-    if len(files) < expected_count:
-        errors.append(f"Intent requires {expected_count} image(s), but {len(files)} uploaded.")
-
     optical_files = [f for f in files if f.get("modality", "optical") == "optical"]
     sar_files = [f for f in files if f.get("modality") == "sar"]
 
-    if expected_modality == "optical" and not optical_files:
-        errors.append("Expected at least one optical image, but none was uploaded.")
-    elif expected_modality == "sar" and not sar_files:
-        errors.append("Expected at least one SAR image, but none was uploaded.")
-    elif expected_modality == "both":
-        if not optical_files:
-            errors.append("Fusion/land-cover analysis requires an optical image, but none was uploaded.")
-        if not sar_files:
-            errors.append("Fusion/land-cover analysis requires a SAR image, but none was uploaded.")
+    if len(files) == 1 and task in ("vqa", "captioning", "land_cover_analysis", "grounding"):
+        # Single image tasks work with any supported satellite modality (Optical or SAR)
+        pass
+    else:
+        if len(files) < expected_count:
+            errors.append(f"Intent requires {expected_count} image(s), but {len(files)} uploaded.")
+        if expected_modality == "optical" and not optical_files:
+            errors.append("Expected at least one optical image, but none was uploaded.")
+        elif expected_modality == "sar" and not sar_files:
+            errors.append("Expected at least one SAR image, but none was uploaded.")
+        elif expected_modality == "both":
+            if not optical_files:
+                errors.append("Fusion/land-cover analysis requires an optical image, but none was uploaded.")
+            if not sar_files:
+                errors.append("Fusion/land-cover analysis requires a SAR image, but none was uploaded.")
 
     for f in files:
-        fmt = str(f.get("format", "")).lower()
+        fmt = str(f.get("format", "")).lstrip(".").lower()
         if not fmt:
             fmt = Path(f.get("path", "")).suffix.lstrip(".").lower()
             f["format"] = fmt
@@ -255,6 +259,10 @@ def task_router(state: SatQueryState) -> Dict[str, Any]:
     if not val.get("is_valid"):
         return {"routing_decision": "error"}
 
+    files = state.get("uploaded_files", [])
+    if len(files) == 0:
+        return {"routing_decision": "conversational_node"}
+
     task = (state.get("intent") or {}).get("primary_task", "vqa")
     return {"routing_decision": _ROUTING_MAP.get(task, "vqa_node")}
 
@@ -276,7 +284,11 @@ def vqa_node(state: SatQueryState) -> Dict[str, Any]:
     # 1. Run real local ViT-Base to extract multi-spectral land-cover sensor prior
     vit_tool = _get_model("vit_base")
     try:
-        vit_pred = vit_tool.predict(s2_path=image_path, top_k=3)
+        is_sar = files[0].get("modality") == "sar" or any(s in Path(image_path).name.lower() for s in ["s1", "vh", "vv", "sar"])
+        if is_sar:
+            vit_pred = vit_tool.predict(s1_path=image_path, top_k=3)
+        else:
+            vit_pred = vit_tool.predict(s2_path=image_path, top_k=3)
         prior_str = vit_pred.get("sensor_prior", "").replace("ResNet-18", "ViT-Base")
     except Exception:
         prior_str = ""
@@ -550,10 +562,17 @@ def fusion_node(state: SatQueryState) -> Dict[str, Any]:
 
 def conversational_node(state: SatQueryState) -> Dict[str, Any]:
     """Handles conversational dialogue, guidance, and remote sensing QA when no imagery is provided."""
-    answer = (
-        state.get("conversational_answer")
-        or "I am SatQuery AI, your satellite remote-sensing intelligence assistant. Please upload imagery to run specialist analyses."
-    )
+    query = state.get("user_query", "")
+    answer = state.get("conversational_answer")
+    if not answer or not answer.strip():
+        answer = (
+            f"I understand your query: *\"{query}\"*.\n\n"
+            "To execute this analysis, please **upload satellite imagery** using the panel above:\n"
+            "• **Single Image Analysis** (VQA, Captioning, Grounding): Upload 1 Optical or SAR GeoTIFF/PNG.\n"
+            "• **Bi-Temporal Change Detection**: Upload 2 acquisition dates (T0 pre-event and T1 post-event).\n"
+            "• **Optical-SAR Fusion**: Upload 1 Sentinel-2 optical image + 1 Sentinel-1 SAR image.\n\n"
+            "Once uploaded, submit your prompt to trigger the specialist model ensemble."
+        )
     return {
         "tool_outputs": {
             **state.get("tool_outputs", {}),

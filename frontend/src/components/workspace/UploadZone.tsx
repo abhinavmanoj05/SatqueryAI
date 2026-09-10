@@ -47,13 +47,31 @@ export default function UploadZone({
   const currentSpec = modeSpecs[mode]
 
   const processFiles = (selectedFiles: FileList | File[]) => {
-    const newItems: UploadedFile[] = []
-    const availableSlots = currentSpec.maxFiles - files.length
-    const countToTake = Math.min(availableSlots, selectedFiles.length)
+    const fileArray = Array.from(selectedFiles)
+    if (fileArray.length === 0) return
+
+    if (mode === 'single') {
+      const file = fileArray[0]
+      const isTiff = /\.(tif|tiff|geotiff)$/i.test(file.name)
+      const newItem: UploadedFile = {
+        file,
+        preview: isTiff ? '' : URL.createObjectURL(file),
+        modality: 'OPTICAL',
+      }
+      onAddFiles([newItem])
+      return
+    }
+
+    // Bi-temporal or fusion mode
+    const isFull = files.length >= currentSpec.maxFiles
+    const baseFiles = isFull ? [] : [...files]
+    const availableSlots = currentSpec.maxFiles - baseFiles.length
+    const countToTake = Math.min(availableSlots, fileArray.length)
+    const newItems: UploadedFile[] = isFull ? [] : []
 
     for (let i = 0; i < countToTake; i++) {
-      const file = selectedFiles[i]
-      const currentIdx = files.length + i
+      const file = fileArray[i]
+      const currentIdx = baseFiles.length + i
       let modality: 'OPTICAL' | 'SAR' | 'T0' | 'T1' = 'OPTICAL'
 
       if (mode === 'bitemporal') {
@@ -64,9 +82,10 @@ export default function UploadZone({
         modality = 'OPTICAL'
       }
 
+      const isTiff = /\.(tif|tiff|geotiff)$/i.test(file.name)
       newItems.push({
         file,
-        preview: URL.createObjectURL(file),
+        preview: isTiff ? '' : URL.createObjectURL(file),
         modality,
       })
     }
@@ -125,28 +144,25 @@ export default function UploadZone({
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => {
-          if (files.length < currentSpec.maxFiles) {
-            fileInputRef.current?.click()
-          }
+          fileInputRef.current?.click()
         }}
         className={`relative border-2 border-dashed rounded-lg p-5 text-center transition-all cursor-pointer ${
           isDragging
             ? 'border-saffron bg-saffron-50/50'
-            : files.length >= currentSpec.maxFiles
-            ? 'border-navy-100 bg-navy-50/30 cursor-default'
             : 'border-navy-200 hover:border-navy-400 bg-white hover:bg-navy-50/30'
         }`}
       >
         <input
           ref={fileInputRef}
           type="file"
-          accept=".tif,.tiff,.png,.jpg,.jpeg"
+          accept=".tif,.tiff,.png,.jpg,.jpeg,.geotiff,.TIF,.TIFF,.PNG,.JPG,.JPEG,image/png,image/jpeg,image/tiff"
           multiple={currentSpec.maxFiles > 1}
           className="hidden"
           onChange={(e) => {
-            if (e.target.files) {
+            if (e.target.files && e.target.files.length > 0) {
               processFiles(e.target.files)
             }
+            e.target.value = ''
           }}
         />
 
@@ -157,7 +173,7 @@ export default function UploadZone({
               Drop {currentSpec.title.toLowerCase()} here, or <span className="text-saffron underline underline-offset-2">browse</span>
             </p>
             <p className="text-xs text-navy-400 mt-1 max-w-sm">
-              Supports GeoTIFF, TIFF, PNG, or JPEG. Max {currentSpec.maxFiles} {currentSpec.maxFiles > 1 ? 'images' : 'image'}.
+              Supports GeoTIFF, TIFF, PNG, or JPEG. Click to browse or replace imagery.
             </p>
           </div>
         ) : (
@@ -168,15 +184,23 @@ export default function UploadZone({
                 className="flex items-center gap-3 bg-white p-2.5 rounded-lg border border-navy-100 shadow-sm relative group"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="w-14 h-14 bg-navy-50 rounded border border-navy-100 overflow-hidden flex items-center justify-center shrink-0">
-                  {fileObj.preview ? (
+                <div className="w-14 h-14 bg-navy-900 rounded border border-navy-200 overflow-hidden flex items-center justify-center shrink-0">
+                  {fileObj.preview && !/\.(tif|tiff|geotiff)$/i.test(fileObj.file.name) ? (
                     <img
                       src={fileObj.preview}
                       alt={fileObj.file.name}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none'
+                      }}
                     />
                   ) : (
-                    <ImageIcon className="w-6 h-6 text-navy-400" />
+                    <div className="flex flex-col items-center justify-center p-1 text-center select-none">
+                      <Layers className="w-5 h-5 text-saffron mb-0.5" />
+                      <span className="text-[8px] font-mono uppercase font-bold text-sky-200 tracking-tight">
+                        {fileObj.file.name.split('.').pop() || 'TIFF'}
+                      </span>
+                    </div>
                   )}
                 </div>
 

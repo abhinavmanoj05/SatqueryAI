@@ -126,11 +126,11 @@ def call_live_vlm(
             preferred_model,
             os.environ.get("GEMINI_MODEL"),
             "gemini-3.8-flash",
+            "gemini-3.7-flash",
             "gemini-3-flash-preview",
             "gemini-flash-latest",
             "gemini-2.5-flash-lite",
-            "gemini-3.5-flash",
-            "gemini-2.0-flash",
+            "gemini-flash-lite-latest",
         ]
         # Deduplicate while preserving order
         models_to_try = []
@@ -175,6 +175,41 @@ def call_live_vlm(
                 last_error = f"Connection timeout or error on Gemini ({model_name}): {e}"
                 continue
 
+        # Fallback to local Ollama if Gemini API is blocked or rate-limited
+        if text is None:
+            ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            try:
+                tag_resp = requests.get(f"{ollama_host}/api/tags", timeout=1.0)
+                if tag_resp.status_code == 200:
+                    installed = [m.get("name") for m in tag_resp.json().get("models", [])]
+                    vision_candidate = None
+                    for cand in ["qwen3-vl", "qwen2-vl", "llava"]:
+                        for inst in installed:
+                            if cand in inst:
+                                vision_candidate = inst
+                                break
+                        if vision_candidate:
+                            break
+                    if not vision_candidate and installed:
+                        vision_candidate = installed[0]
+
+                    if vision_candidate:
+                        img_b64s = [encode_image_to_base64(img) for img in images]
+                        oresp = requests.post(
+                            f"{ollama_host}/api/generate",
+                            json={
+                                "model": vision_candidate,
+                                "prompt": prompt,
+                                "images": img_b64s,
+                                "stream": False,
+                            },
+                            timeout=25,
+                        )
+                        if oresp.status_code == 200:
+                            text = oresp.json().get("response", "").strip()
+                            model_display = f"Local Ollama ({vision_candidate})"
+            except Exception:
+                pass
 
         if text is None:
             raise RuntimeError(last_error or "Failed to obtain response from Gemini API.")
