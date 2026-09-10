@@ -552,7 +552,8 @@ class ResNet18Tool:
 
         # 5. Build sensor prior string for VLM prompt injection
         prior_parts = [f"{item['class']} ({item['probability'] * 100:.0f}%)" for item in top_k_list[:5]]
-        sensor_prior = "ResNet-18 detects: " + ", ".join(prior_parts) + "."
+        model_label = "ViT-Base" if "vit" in self.model_name.lower() else "ResNet-18"
+        sensor_prior = f"{model_label} detects: " + ", ".join(prior_parts) + "."
 
         return {
             "probabilities": [round(float(p), 4) for p in probs.tolist()],
@@ -618,7 +619,8 @@ class ResNet18Tool:
                     ]
 
                 prior_parts = [f"{item['class']} ({item['probability'] * 100:.0f}%)" for item in top_k_list[:5]]
-                sensor_prior = "ResNet-18 detects: " + ", ".join(prior_parts) + "."
+                model_label = "ViT-Base" if "vit" in self.model_name.lower() else "ResNet-18"
+                sensor_prior = f"{model_label} detects: " + ", ".join(prior_parts) + "."
 
                 results.append({
                     "probabilities": [round(float(p), 4) for p in probs.tolist()],
@@ -634,6 +636,10 @@ class ResNet18Tool:
                 })
 
         return results
+
+
+# Export alias for clarity
+ViTBaseTool = ResNet18Tool
 
 
 # Standalone demonstration and testing
