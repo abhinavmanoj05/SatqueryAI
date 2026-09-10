@@ -121,9 +121,21 @@ def call_live_vlm(
     start_time = time.perf_counter()
 
     if provider == "gemini":
-        model_name = preferred_model or "gemini-2.0-flash"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
-        headers = {"Content-Type": "application/json"}
+        candidate_models = [
+            preferred_model,
+            os.environ.get("GEMINI_MODEL"),
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+        ]
+        # Deduplicate while preserving order
+        models_to_try = []
+        for m in candidate_models:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
+
+        text = None
+        model_display = None
+        last_error = None
 
         parts = []
         for img in images:
@@ -138,15 +150,24 @@ def call_live_vlm(
                 "maxOutputTokens": 1024,
             },
         }
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        if resp.status_code != 200:
-            raise RuntimeError(f"Google Gemini API error ({resp.status_code}): {resp.text}")
-        data = resp.json()
-        try:
-            text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except (KeyError, IndexError) as e:
-            raise RuntimeError(f"Unexpected response structure from Gemini API: {data}") from e
-        model_display = f"Google Gemini 2.0 Flash ({model_name})"
+        headers = {"Content-Type": "application/json"}
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            if resp.status_code == 200:
+                data = resp.json()
+                try:
+                    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    model_display = f"Google Gemini ({model_name})"
+                    break
+                except (KeyError, IndexError) as e:
+                    last_error = f"Unexpected response structure from Gemini ({model_name}): {data}"
+            else:
+                last_error = f"Google Gemini API error ({resp.status_code}) on {model_name}: {resp.text}"
+
+        if text is None:
+            raise RuntimeError(last_error or "Failed to obtain response from Gemini API.")
 
     else:
         # OpenRouter (Qwen 2.5-VL 72B Instruct)

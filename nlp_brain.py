@@ -60,6 +60,7 @@ def get_available_ollama_model(host: str = "http://localhost:11434") -> Optional
             available_names = [m.get("name", "") for m in models_info]
             if not available_names:
                 return None
+
             if configured and any(configured in name for name in available_names):
                 return configured
             # Prioritize faster 3B/4B models for query parsing
@@ -149,9 +150,8 @@ def call_ollama_brain(query: str, num_files: int, model_name: str, host: str = "
 
 
 def call_gemini_brain(query: str, num_files: int, api_key: str) -> Optional[BrainDecision]:
-    """Execute query comprehension and thinking through Google Gemini 2.0 Flash."""
+    """Execute query comprehension and thinking through Google Gemini (Flash 3 / Flash 2.0)."""
     prompt = _build_brain_prompt(query, num_files)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -160,24 +160,34 @@ def call_gemini_brain(query: str, num_files: int, api_key: str) -> Optional[Brai
             "responseMimeType": "application/json",
         },
     }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=12)
-        if resp.status_code == 200:
-            data = resp.json()
-            raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            parsed = json.loads(raw_text)
-            return BrainDecision(
-                task=parsed.get("task", "vqa"),
-                thinking=parsed.get("thinking", "Gemini 2.0 Flash parsed query intent and determined optimal specialist pipeline."),
-                input_count=int(parsed.get("input_count", 1 if num_files > 0 else 0)),
-                expected_modality=parsed.get("expected_modality", "optical"),
-                requires_spatial_output=bool(parsed.get("requires_spatial_output", False)),
-                models_to_invoke=parsed.get("models_to_invoke", ["ViT-Base", "Google Gemini 2.0 Flash"]),
-                direct_response=parsed.get("direct_response"),
-                provider_used="gemini-2.0-flash",
-            )
-    except Exception:
-        return None
+    candidate_models = [
+        os.environ.get("GEMINI_MODEL"),
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+    ]
+    models_to_try = [m for m in candidate_models if m]
+
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=12)
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                parsed = json.loads(raw_text)
+                return BrainDecision(
+                    task=parsed.get("task", "vqa"),
+                    thinking=parsed.get("thinking", f"Google Gemini ({model_name}) parsed query intent and determined optimal specialist pipeline."),
+                    input_count=int(parsed.get("input_count", 1 if num_files > 0 else 0)),
+                    expected_modality=parsed.get("expected_modality", "optical"),
+                    requires_spatial_output=bool(parsed.get("requires_spatial_output", False)),
+                    models_to_invoke=parsed.get("models_to_invoke", ["ViT-Base", f"Google Gemini ({model_name})"]),
+                    direct_response=parsed.get("direct_response"),
+                    provider_used=f"gemini:{model_name}",
+                )
+        except Exception:
+            continue
+    return None
     return None
 
 
@@ -309,12 +319,17 @@ def understand_query_with_nlp_brain(
     - If num_files > 0: accurately routes remote sensing task and generates thinking trace.
     """
     effective_key = api_key or os.environ.get("GEMINI_API_KEY")
+    omniroute_key = os.environ.get("OMNIRoute_API_KEY") or "sk-2cb602d99709fd78-a3daf9-ff8ee46f"
     ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
     # 1. When no images are uploaded, handle conversationally
     if num_files == 0:
         if effective_key:
             decision = call_gemini_brain(query, num_files, api_key=effective_key)
+            if decision:
+                return decision
+        elif omniroute_key:
+            decision = call_omniroute_brain(query, num_files, api_key=omniroute_key)
             if decision:
                 return decision
         model = get_available_ollama_model(ollama_host)
@@ -328,7 +343,7 @@ def understand_query_with_nlp_brain(
     rule_decision = call_rule_based_brain(query, num_files)
     rule_decision.direct_response = None
 
-    # Enrich thinking with Ollama or Gemini if available, maintaining task routing accuracy
+    # Enrich thinking with Ollama, Gemini, or Omniroute if available, maintaining task routing accuracy
     if effective_key:
         try:
             gemini_dec = call_gemini_brain(query, num_files, api_key=effective_key)
@@ -345,6 +360,14 @@ def understand_query_with_nlp_brain(
                 if ollama_dec and ollama_dec.thinking:
                     rule_decision.thinking = ollama_dec.thinking
                     rule_decision.provider_used = f"ollama:{model}"
+        except Exception:
+            pass
+    elif omniroute_key:
+        try:
+            omni_dec = call_omniroute_brain(query, num_files, api_key=omniroute_key)
+            if omni_dec and omni_dec.thinking:
+                rule_decision.thinking = omni_dec.thinking
+                rule_decision.provider_used = "omniroute"
         except Exception:
             pass
 
