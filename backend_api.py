@@ -57,12 +57,12 @@ async def health_check():
         "status": "healthy",
         "service": "SatQuery AI Agentic Orchestrator",
         "models": [
-            "ResNet-18 (BIFOLD-BigEarthNetv2-0/resnet18-all-v0.2.0)",
             "ViT-Base (BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0)",
-            "PaliGemma-3B (Captioning & VQA Synthesis)",
-            "InternVL2-8B (VQA & Visual Grounding)",
-            "Qwen2-VL-7B (Bi-Temporal Change Understanding)",
-            "CDVQA Baseline (Pixel Change Mask)",
+            "Google Gemini 2.0 Flash (Cloud VLM: VQA, Grounding, Change Analysis)",
+            "Qwen 2.5-VL 72B (OpenRouter High-Res Backup)",
+            "CDVQA Baseline (Pixel Change Mask Differencing)",
+            "ResNet-18 (BIFOLD-BigEarthNetv2-0/resnet18-all-v0.2.0)",
+            "InternVL2-8B & PaliGemma-3B (Local Offline Fallbacks)",
         ],
     }
 
