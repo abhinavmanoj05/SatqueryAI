@@ -77,6 +77,34 @@ class SatQueryAITester:
             }
         return {"status": "skipped", "reason": f"Data not found at {data_root}"}
 
+    def test_vit(self, data_root: Optional[str] = None) -> Dict[str, Any]:
+        """Test ViT-Base on BigEarthNet v2.0."""
+        print("[2/6] Evaluating ViT-Base Optical-SAR Fusion Tool...")
+        tool = ResNet18Tool(model_name="BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0")
+
+        if data_root is None:
+            candidates = [
+                _ROOT / "reben-training-scripts" / "scripts" / "data",
+                Path(__file__).resolve().parent / "reben-training-scripts" / "scripts" / "data",
+            ]
+            data_dir = next((c for c in candidates if c.exists()), candidates[0])
+            s1_path = data_dir / "S1"
+            s2_path = data_dir / "S2"
+        else:
+            s1_path = Path(data_root) / "S1"
+            s2_path = Path(data_root) / "S2"
+
+        if s1_path.exists() and s2_path.exists():
+            pred = tool.predict(s2_path=str(s2_path), s1_path=str(s1_path))
+            return {
+                "status": "success",
+                "top_predictions": pred["top_k"][:3],
+                "confidence": pred["confidence"],
+                "sensor_prior": pred["sensor_prior"],
+                "execution_trace": pred["execution_trace"],
+            }
+        return {"status": "skipped", "reason": f"Data not found at {data_root}"}
+
     def test_paligemma(self, test_data_path: Optional[str] = None) -> Dict[str, Any]:
         """Test PaliGemma on VRSBench caption split."""
         print("[2/5] Evaluating PaliGemma-3B Captioning Tool...")
@@ -169,6 +197,7 @@ class SatQueryAITester:
         self.results = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "resnet18": self.test_resnet18(),
+            "vit_base": self.test_vit(),
             "paligemma": self.test_paligemma(),
             "qwen2vl": self.test_qwen2vl(),
             "internvl2": self.test_internvl2(),

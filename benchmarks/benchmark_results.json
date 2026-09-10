@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-10 09:54:13",
+  "timestamp": "2026-09-10 12:16:55",
   "resnet18": {
     "status": "success",
     "top_predictions": [
@@ -13,7 +13,32 @@
     "execution_trace": {
       "model": "BIFOLD-BigEarthNetv2-0/resnet18-all-v0.2.0",
       "input_shape": "(12, 120, 120)",
-      "inference_time_ms": 13.36,
+      "inference_time_ms": 35.36,
+      "device": "cpu"
+    }
+  },
+  "vit_base": {
+    "status": "success",
+    "top_predictions": [
+      {
+        "class": "Marine waters",
+        "probability": 0.3774
+      },
+      {
+        "class": "Inland waters",
+        "probability": 0.196
+      },
+      {
+        "class": "Coniferous forest",
+        "probability": 0.1293
+      }
+    ],
+    "confidence": 0.3774,
+    "sensor_prior": "ResNet-18 detects: Marine waters (38%), Inland waters (20%), Coniferous forest (13%), Mixed forest (2%), Moors, heathland and sclerophyllous vegetation (2%).",
+    "execution_trace": {
+      "model": "BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0",
+      "input_shape": "(12, 120, 120)",
+      "inference_time_ms": 317.2,
       "device": "cpu"
     }
   },
@@ -23,7 +48,7 @@
     "caption": "Earth observation satellite patch showcasing mixed terrain, parcel boundaries, and heterogeneous land use classification.",
     "execution_trace": {
       "model": "google/paligemma-3b-pt-224 (SatQuery Remote Sensing Prior Engine)",
-      "inference_time_ms": 23.75,
+      "inference_time_ms": 22.18,
       "device": "cpu"
     }
   },
@@ -33,7 +58,7 @@
     "answer": "Bi-temporal inspection between Time T0 and Time T1 confirms high spatial stability with no substantial land-cover transformation or new structural developments. Minor radiometric variances are consistent with seasonal or illumination changes.",
     "execution_trace": {
       "model": "Qwen/Qwen2-VL-7B-Instruct (SatQuery Bi-Temporal Engine)",
-      "inference_time_ms": 17.35,
+      "inference_time_ms": 21.65,
       "device": "cpu"
     }
   },
@@ -50,7 +75,7 @@
     ],
     "execution_trace": {
       "model": "OpenGVLab/InternVL2-8B (SatQuery Visual Grounding Engine)",
-      "inference_time_ms": 3.63,
+      "inference_time_ms": 3.97,
       "device": "cpu"
     }
   },
