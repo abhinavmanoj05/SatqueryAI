@@ -4,13 +4,15 @@ import UploadZone from './UploadZone'
 import ChatInput from './ChatInput'
 import ResponsePanel from './ResponsePanel'
 import AgentTracePanel from './AgentTracePanel'
+import ReportModal from './ReportModal'
 import { runSatQuery, getAvailableModels, type SystemModelStatus } from '@/api/satquery'
-import { Cpu, Sparkles, ChevronDown, ChevronUp, Layers } from 'lucide-react'
+import { Cpu, Sparkles, ChevronDown, ChevronUp, Layers, FileText } from 'lucide-react'
 import type { UploadMode, UploadedFile, Session, ChatMessage, OrchestratorResponse, AttachedImageMeta } from '@/types/orchestrator'
 
 export default function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [tracePanelOpen, setTracePanelOpen] = useState(true)
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
   const [uploadMode, setUploadMode] = useState<UploadMode>('single')
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [showUploadZone, setShowUploadZone] = useState<boolean>(true)
@@ -230,6 +232,26 @@ export default function Workspace() {
               {uploadMode}
             </span>
           </div>
+
+          {/* Research Report Action Button */}
+          <button
+            type="button"
+            onClick={() => setIsReportModalOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold transition-all shadow-xs cursor-pointer ${
+              activeSession.messages.length > 0
+                ? 'bg-saffron hover:bg-saffron-600 text-white shadow-saffron/20'
+                : 'bg-navy-50 hover:bg-navy-100 text-navy-700 border border-navy-200'
+            }`}
+            title="Generate & View Comprehensive Earth Observation Session Report"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Research Report</span>
+            {activeSession.messages.length > 0 && (
+              <span className="bg-black/20 text-white text-[9px] px-1.5 py-0.2 rounded-full font-mono">
+                {activeSession.messages.filter((m) => m.role === 'assistant').length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -286,7 +308,11 @@ export default function Workspace() {
           </div>
 
           {/* Response Feed Area */}
-          <ResponsePanel messages={activeSession.messages} isLoading={isLoading} />
+          <ResponsePanel
+            messages={activeSession.messages}
+            isLoading={isLoading}
+            onOpenReport={() => setIsReportModalOpen(true)}
+          />
 
           {/* Chat / Query Bar */}
           <ChatInput onSend={handleSendQuery} isLoading={isLoading} />
@@ -299,6 +325,14 @@ export default function Workspace() {
           onToggle={() => setTracePanelOpen((v) => !v)}
         />
       </div>
+
+      {/* Earth Observation Research Report Synthesis Modal */}
+      <ReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        session={activeSession}
+        preferredModel={preferredModel}
+      />
     </section>
   )
 }

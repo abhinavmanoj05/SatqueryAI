@@ -207,6 +207,9 @@ def call_live_vlm(
                         break
                     except (KeyError, IndexError):
                         last_error = f"Unexpected response structure from Gemini ({model_name})"
+                elif resp.status_code in (400, 401, 403):
+                    last_error = f"Google Gemini API error ({resp.status_code}) on {model_name}"
+                    break
                 else:
                     last_error = f"Google Gemini API error ({resp.status_code}) on {model_name}"
             except Exception as e:

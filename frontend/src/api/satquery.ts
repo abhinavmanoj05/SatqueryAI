@@ -1,4 +1,4 @@
-import type { OrchestratorResponse } from '@/types/orchestrator'
+import type { OrchestratorResponse, Session } from '@/types/orchestrator'
 
 
 // Public API — runSatQuery
@@ -94,4 +94,54 @@ export async function runSatQuery(
   }
 
   return data
+}
+
+/**
+ * Generate a synthesized Earth Observation Research Report summarizing the active session.
+ */
+export async function generateSessionReport(
+  session: Session,
+  preferredModel?: string,
+  apiKey?: string,
+): Promise<{ executiveSummary: string; modelUsed: string }> {
+  try {
+    const payload = {
+      session_id: session.id,
+      session_title: session.title,
+      messages: session.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        images: m.images?.map((img) => ({ name: img.name, size: img.size, isTiff: img.isTiff })),
+        response: m.response
+          ? {
+              final_answer: m.response.final_answer,
+              visual_evidence: m.response.visual_evidence,
+              confidence: m.response.confidence,
+              execution_trace: m.response.execution_trace,
+            }
+          : undefined,
+      })),
+      preferred_model: preferredModel || 'auto',
+      api_key: apiKey,
+    }
+
+    const res = await fetch('/api/generate-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      return {
+        executiveSummary: data.executive_summary || data.executiveSummary || '',
+        modelUsed: data.model_used || data.modelUsed || 'SatQuery Intelligence Engine',
+      }
+    }
+  } catch (err) {
+    console.warn('Backend report generation endpoint unreachable, falling back to client synthesizer:', err)
+  }
+
+  throw new Error('Failed to generate AI executive summary from backend')
 }

@@ -12,15 +12,17 @@ import {
   Activity,
   Server,
   MapPin,
+  FileText,
 } from 'lucide-react'
 import type { ChatMessage, OrchestratorResponse } from '@/types/orchestrator'
 
 interface ResponsePanelProps {
   messages: ChatMessage[]
   isLoading: boolean
+  onOpenReport?: () => void
 }
 
-export default function ResponsePanel({ messages, isLoading }: ResponsePanelProps) {
+export default function ResponsePanel({ messages, isLoading, onOpenReport }: ResponsePanelProps) {
   if (messages.length === 0 && !isLoading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-navy-50/20">
@@ -93,6 +95,40 @@ export default function ResponsePanel({ messages, isLoading }: ResponsePanelProp
           )}
         </div>
       ))}
+
+      {/* End of Chat — Session Research Synthesis Report Banner */}
+      {messages.length > 0 && !isLoading && onOpenReport && (
+        <div className="bg-gradient-to-r from-navy-900 via-navy-850 to-navy-900 text-white rounded-2xl p-4 sm:p-5 border border-navy-700/80 shadow-md flex items-center justify-between flex-wrap gap-3 mt-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-saffron/20 border border-saffron/40 flex items-center justify-center text-saffron shrink-0">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-white tracking-wide uppercase">
+                  Research Session Synthesis
+                </h4>
+                <span className="bg-saffron/20 text-saffron-300 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border border-saffron/40">
+                  {messages.filter((m) => m.role === 'assistant').length} Results Ready
+                </span>
+              </div>
+              <p className="text-[11px] text-navy-300 mt-0.5 max-w-md">
+                Compile all multi-turn interrogations, land-cover distributions, grounded regions, and model execution traces into an executive briefing.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenReport}
+            className="px-4 py-2 rounded-xl bg-saffron hover:bg-saffron-600 text-white text-xs font-bold flex items-center gap-2 transition-all shadow-sm hover:shadow-md cursor-pointer shrink-0"
+            title="Generate Comprehensive Session Report"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Generate Session Report</span>
+          </button>
+        </div>
+      )}
 
       {/* Loading Skeleton */}
       {isLoading && (
