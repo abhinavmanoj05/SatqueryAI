@@ -43,9 +43,42 @@ export default function ResponsePanel({ messages, isLoading }: ResponsePanelProp
           {/* User Message */}
           {msg.role === 'user' && (
             <div className="flex justify-end">
-              <div className="max-w-2xl bg-navy-800 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm shadow-sm">
-                <p className="leading-relaxed">{msg.content}</p>
-                <div className="text-[10px] text-navy-300 mt-1 text-right">{msg.timestamp}</div>
+              <div className="max-w-2xl bg-navy-800 text-white rounded-2xl rounded-tr-sm p-4 text-sm shadow-sm space-y-2.5">
+                {msg.images && msg.images.length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-0.5">
+                    {msg.images.map((imgMeta, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2.5 bg-navy-900/90 rounded-xl p-2 border border-navy-700/80 shadow-xs max-w-sm"
+                      >
+                        {imgMeta.url && !imgMeta.isTiff ? (
+                          <img
+                            src={imgMeta.url}
+                            alt={imgMeta.name}
+                            className="w-12 h-12 rounded-lg object-cover bg-navy-950 shrink-0 border border-navy-800"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-navy-950 flex flex-col items-center justify-center shrink-0 border border-navy-800 text-saffron">
+                            <Layers className="w-5 h-5" />
+                            <span className="text-[8px] font-mono font-bold text-sky-300 uppercase">TIFF</span>
+                          </div>
+                        )}
+                        <div className="min-w-0 pr-1">
+                          <p className="text-xs font-semibold text-white truncate max-w-[160px]" title={imgMeta.name}>
+                            {imgMeta.name}
+                          </p>
+                          {imgMeta.size && (
+                            <span className="text-[10px] text-navy-400 font-mono block">
+                              {imgMeta.size}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="leading-relaxed whitespace-pre-line">{msg.content}</p>
+                <div className="text-[10px] text-navy-400 mt-1 text-right font-mono">{msg.timestamp}</div>
               </div>
             </div>
           )}

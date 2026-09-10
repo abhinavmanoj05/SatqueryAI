@@ -5,14 +5,15 @@ import ChatInput from './ChatInput'
 import ResponsePanel from './ResponsePanel'
 import AgentTracePanel from './AgentTracePanel'
 import { runSatQuery, getAvailableModels, type SystemModelStatus } from '@/api/satquery'
-import { Cpu, Sparkles } from 'lucide-react'
-import type { UploadMode, UploadedFile, Session, ChatMessage, OrchestratorResponse } from '@/types/orchestrator'
+import { Cpu, Sparkles, ChevronDown, ChevronUp, Layers } from 'lucide-react'
+import type { UploadMode, UploadedFile, Session, ChatMessage, OrchestratorResponse, AttachedImageMeta } from '@/types/orchestrator'
 
 export default function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [tracePanelOpen, setTracePanelOpen] = useState(true)
   const [uploadMode, setUploadMode] = useState<UploadMode>('single')
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const [showUploadZone, setShowUploadZone] = useState<boolean>(true)
   const [isLoading, setIsLoading] = useState(false)
   const [preferredModel, setPreferredModel] = useState<string>('auto')
   const [systemModels, setSystemModels] = useState<SystemModelStatus | null>(null)
@@ -71,12 +72,56 @@ export default function Workspace() {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const handleSendQuery = async (query: string) => {
+  const handleSendQuery = async (query: string, attachedFiles?: File[]) => {
+    // 1. Determine active files for this query
+    let filesToSend: File[] = []
+    let imagePreviews: AttachedImageMeta[] = []
+
+    if (attachedFiles && attachedFiles.length > 0) {
+      filesToSend = attachedFiles
+      imagePreviews = attachedFiles.map((f) => {
+        const isTiff = /\.(tif|tiff|geotiff)$/i.test(f.name)
+        return {
+          name: f.name,
+          url: isTiff ? '' : URL.createObjectURL(f),
+          isTiff,
+          size: `${(f.size / (1024 * 1024)).toFixed(2)} MB`,
+        }
+      })
+
+      // Also sync to uploadedFiles state so the user sees the active images in the workspace
+      const newUploadedFiles: UploadedFile[] = attachedFiles.map((f, idx) => ({
+        file: f,
+        preview: /\.(tif|tiff|geotiff)$/i.test(f.name) ? '' : URL.createObjectURL(f),
+        modality: /\.(sar|s1)/i.test(f.name)
+          ? 'SAR'
+          : uploadMode === 'bitemporal'
+          ? (idx === 0 ? 'T0' : 'T1')
+          : (idx === 1 ? 'SAR' : 'OPTICAL'),
+      }))
+      setUploadedFiles(newUploadedFiles)
+    } else if (uploadedFiles.length > 0) {
+      filesToSend = uploadedFiles.map((f) => f.file)
+      // Include previews in message bubble if first message
+      if (activeSession.messages.length === 0) {
+        imagePreviews = uploadedFiles.map((uf) => {
+          const isTiff = /\.(tif|tiff|geotiff)$/i.test(uf.file.name)
+          return {
+            name: uf.file.name,
+            url: uf.preview,
+            isTiff,
+            size: `${(uf.file.size / (1024 * 1024)).toFixed(2)} MB`,
+          }
+        })
+      }
+    }
+
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
       content: query,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      images: imagePreviews.length > 0 ? imagePreviews : undefined,
     }
 
     // Add user message to session
@@ -97,8 +142,7 @@ export default function Workspace() {
     setIsLoading(true)
 
     try {
-      const files = uploadedFiles.map((f) => f.file)
-      const orchestratorResult = await runSatQuery(query, files, undefined, preferredModel)
+      const orchestratorResult = await runSatQuery(query, filesToSend, undefined, preferredModel)
 
       const assistantMsg: ChatMessage = {
         id: `msg-${Date.now()}-res`,
@@ -204,17 +248,41 @@ export default function Workspace() {
         {/* Center Panel (Upload + Response + Input) */}
         <main className="flex-1 flex flex-col bg-white overflow-hidden min-w-0">
           {/* Collapsible Image Upload Zone */}
-          <div className="p-3 border-b border-navy-100 bg-sky-base/20">
-            <UploadZone
-              mode={uploadMode}
-              onModeChange={(m) => {
-                setUploadMode(m)
-                setUploadedFiles([])
-              }}
-              files={uploadedFiles}
-              onAddFiles={handleAddFiles}
-              onRemoveFile={handleRemoveFile}
-            />
+          <div className="border-b border-navy-100 bg-sky-base/20">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-navy-100/60 text-xs">
+              <div className="flex items-center gap-2 text-navy-700 font-semibold">
+                <Layers className="w-3.5 h-3.5 text-saffron" />
+                <span>Multi-Sensor Dropzone</span>
+                {uploadedFiles.length > 0 && (
+                  <span className="bg-navy-100 text-navy-800 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
+                    {uploadedFiles.length} loaded
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowUploadZone((v) => !v)}
+                className="text-navy-500 hover:text-navy font-medium flex items-center gap-1 text-[11px] transition-colors"
+                title={showUploadZone ? 'Minimize Dropzone' : 'Expand Dropzone'}
+              >
+                <span>{showUploadZone ? 'Minimize Dropzone' : 'Expand Dropzone'}</span>
+                {showUploadZone ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            {showUploadZone && (
+              <div className="p-3">
+                <UploadZone
+                  mode={uploadMode}
+                  onModeChange={(m) => {
+                    setUploadMode(m)
+                    setUploadedFiles([])
+                  }}
+                  files={uploadedFiles}
+                  onAddFiles={handleAddFiles}
+                  onRemoveFile={handleRemoveFile}
+                />
+              </div>
+            )}
           </div>
 
           {/* Response Feed Area */}

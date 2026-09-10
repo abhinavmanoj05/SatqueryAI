@@ -97,11 +97,19 @@ export interface UploadedFile {
 // ---------------------------------------------------------------------------
 // Chat session types
 // ---------------------------------------------------------------------------
+export interface AttachedImageMeta {
+  name: string
+  url: string
+  isTiff?: boolean
+  size?: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: string
+  images?: AttachedImageMeta[]
   response?: OrchestratorResponse
 }
 
