@@ -11,14 +11,19 @@ Interactive Gradio Web UI integrating all specialist models in the SatQuery AI p
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
 import tempfile
 import time
 import traceback
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+# Disable Gradio telemetry to ensure clean, offline-safe operation
+os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 
 if sys.platform == "win32":
     try:
@@ -130,6 +135,29 @@ def _extract_file_path(file_obj: Any) -> Optional[Any]:
     return str(file_obj)
 
 
+def get_sample_satellite_image(filename: str = "sample_patch_rgb.png") -> Optional[str]:
+    """Locate bundled sample satellite patch image."""
+    candidates = [
+        _ROOT / "scripts" / filename,
+        _ROOT / filename,
+        Path(__file__).resolve().parent / "scripts" / filename,
+        Path(__file__).resolve().parent / filename,
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p.resolve())
+    return None
+
+
+def get_sample_post_image() -> Optional[str]:
+    """Locate bundled post-event change satellite patch, falling back to rgb patch."""
+    post = get_sample_satellite_image("sample_patch_post.png")
+    if post and Path(post).exists():
+        return post
+    return get_sample_satellite_image("sample_patch_rgb.png")
+
+
+
 def plot_probabilities(top_k_items: List[Dict[str, Any]]) -> plt.Figure:
     """Create a styled horizontal bar chart for class probabilities."""
     fig, ax = plt.subplots(figsize=(8, max(3.5, len(top_k_items) * 0.45)), dpi=120)
@@ -177,12 +205,14 @@ def predict_resnet18(
     try:
         s2_path = _extract_file_path(s2_file)
         s1_path = _extract_file_path(s1_file)
+        using_bundled = (s2_path is None and s1_path is None)
 
         tool = get_model(model_name)
         result = tool.predict(s2_path=s2_path, s1_path=s1_path, top_k=int(top_k))
 
+        src_note = " *(Auto-loaded bundled 12-channel Sentinel-1/Sentinel-2 Optical-SAR patch)*" if using_bundled else ""
         summary_text = (
-            f"### 🛰️ Sensor Prior Output ({model_name})\n\n"
+            f"### 🛰️ Sensor Prior Output ({model_name}){src_note}\n\n"
             f"> **{result['sensor_prior']}**\n\n"
             f"**Max Confidence:** `{result['confidence'] * 100:.2f}%`\n"
             f"**Model ID:** `{result['execution_trace']['model']}`\n"
@@ -211,9 +241,9 @@ def predict_paligemma(
 ) -> str:
     """Execute PaliGemma image captioning or VQA."""
     try:
-        img_path = _extract_file_path(image_file)
+        img_path = _extract_file_path(image_file) or get_sample_satellite_image()
         if not img_path:
-            return "Error: Please upload an image."
+            return "Error: Please upload an image or ensure bundled sample exists."
 
         tool = get_model("PaliGemma")
         key_clean = api_key.strip() if api_key and api_key.strip() else None
@@ -250,9 +280,9 @@ def predict_internvl2(
 ) -> Tuple[str, Optional[Image.Image]]:
     """Execute InternVL2 for VQA or Grounding."""
     try:
-        img_path = _extract_file_path(image_file)
+        img_path = _extract_file_path(image_file) or get_sample_satellite_image()
         if not img_path:
-            return "Error: Please upload an image.", None
+            return "Error: Please upload an image or ensure bundled sample exists.", None
 
         tool = get_model("InternVL2")
         pil_img = Image.open(img_path).convert("RGB")
@@ -313,11 +343,11 @@ def predict_qwen2vl(
 ) -> str:
     """Execute Qwen2-VL bi-temporal change analysis."""
     try:
-        pre_path = _extract_file_path(img_pre_file)
-        post_path = _extract_file_path(img_post_file)
+        pre_path = _extract_file_path(img_pre_file) or get_sample_satellite_image()
+        post_path = _extract_file_path(img_post_file) or get_sample_post_image()
 
         if not pre_path or not post_path:
-            return "Error: Please upload both Pre-event (Date 1) and Post-event (Date 2) images."
+            return "Error: Please upload both Pre-event (Date 1) and Post-event (Date 2) images or use bundled samples."
 
         tool = get_model("Qwen2-VL")
         key_clean = api_key.strip() if api_key and api_key.strip() else None
@@ -354,11 +384,11 @@ def predict_cdvqa(
 ) -> Tuple[str, Optional[Image.Image]]:
     """Execute CDVQA dual-temporal change detection & mask generation."""
     try:
-        p1 = _extract_file_path(img1_file)
-        p2 = _extract_file_path(img2_file)
+        p1 = _extract_file_path(img1_file) or get_sample_satellite_image()
+        p2 = _extract_file_path(img2_file) or get_sample_post_image()
 
         if not p1 or not p2:
-            return "Error: Please upload both Time 1 and Time 2 images.", None
+            return "Error: Please upload both Time 1 and Time 2 images or use bundled samples.", None
 
         tool = get_model("CDVQA")
         res = tool.predict_change(p1, p2, query.strip() or "describe changes")
@@ -403,17 +433,13 @@ def run_agentic_orchestrator(
     """
     try:
         start_time = time.perf_counter()
-        p1 = _extract_file_path(img_primary)
+        p1 = _extract_file_path(img_primary) or get_sample_satellite_image()
         p2 = _extract_file_path(img_secondary)
         query = user_query.strip() if user_query else "Analyze the land cover, features, and any detectable changes."
         key_clean = api_key.strip() if api_key and api_key.strip() else None
 
         if not p1:
-            sample_p = Path(__file__).resolve().parent / "sample_patch_rgb.png"
-            if sample_p.exists():
-                p1 = str(sample_p)
-            else:
-                return "❌ Please upload at least one satellite image.", "", None, ""
+            return "❌ Please upload at least one satellite image or ensure bundled sample exists.", "", None, ""
 
         plan_steps = []
         tools_executed = []
@@ -445,7 +471,9 @@ def run_agentic_orchestrator(
         change_info = ""
         is_bitemporal = (p2 is not None) or any(k in query.lower() for k in ["change", "difference", "delta", "temporal", "date 1", "time"])
         if is_bitemporal:
-            target_p2 = p2 if p2 else p1
+            target_p2 = p2 if p2 else get_sample_post_image()
+            if not target_p2:
+                target_p2 = p1
             plan_steps.append("2. **Bi-Temporal Analysis**: Invoke `CDVQA Tool` (change mask) & `Qwen2-VL` (temporal reasoning).")
             
             cdvqa_tool = get_model("CDVQA")
@@ -551,7 +579,166 @@ def run_agentic_orchestrator(
 
 
 # ---------------------------------------------------------------------------
-# Gradio UI Construction
+# Base64 Rendering Helpers
+# ---------------------------------------------------------------------------
+def pil_to_b64(img: Image.Image) -> str:
+    """Convert PIL image to base64 string for chat markdown rendering."""
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+def fig_to_b64(fig: plt.Figure) -> str:
+    """Convert Matplotlib figure to base64 string for chat markdown rendering."""
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Conversational Chat Handlers
+# ---------------------------------------------------------------------------
+def add_user_message(message: Dict[str, Any], history: List[Any], current_files: List[str]):
+    """Add user message and attached files to the chat history."""
+    if not message:
+        return {"text": "", "files": []}, history, current_files
+
+    text = (message.get("text") or "").strip()
+    new_files = message.get("files", []) or []
+
+    if new_files:
+        current_files = list(new_files)
+
+    for f in new_files:
+        history.append(((f,), None))
+
+    if text:
+        history.append((text, None))
+    elif new_files and not text:
+        history.append(("Analyze this attached satellite imagery.", None))
+
+    return {"text": "", "files": []}, history, current_files
+
+
+def bot_respond(
+    history: List[Any],
+    current_files: List[str],
+    task_mode: str,
+    model_choice: str,
+    api_key: Optional[str],
+):
+    """Execute specialist models and generate assistant chat response."""
+    if not history:
+        return history, current_files
+
+    # Find last user text query
+    last_query = "Analyze the scene and describe findings."
+    for msg, _ in reversed(history):
+        if isinstance(msg, str) and msg.strip():
+            last_query = msg.strip()
+            break
+
+    eff_task = task_mode
+    eff_model = model_choice
+    key_clean = api_key.strip() if api_key and api_key.strip() else None
+
+    # Auto-model routing if Auto is chosen
+    if "Auto" in eff_model:
+        if eff_task == "Optical SAR Analysis":
+            eff_model = "ResNet-18"
+        elif eff_task == "Multitemporal Change":
+            eff_model = "Qwen2-VL-7B"
+        elif any(k in last_query.lower() for k in ["ground", "box", "detect", "locate", "where"]):
+            eff_model = "InternVL2-8B"
+        else:
+            eff_model = "PaliGemma-3B"
+
+    # Route 1: Optical SAR Analysis
+    if eff_task == "Optical SAR Analysis" or eff_model in ["ResNet-18", "ViT-Base", "ResNet-50"]:
+        target_model = eff_model if eff_model in ["ResNet-18", "ViT-Base", "ResNet-50"] else "ResNet-18"
+        s2_file = current_files[0] if current_files else None
+        s1_file = current_files[1] if len(current_files) > 1 else None
+
+        txt, fig, raw = predict_resnet18(s2_file, s1_file, top_k=5, model_name=target_model)
+        img_md = ""
+        if fig is not None:
+            b64_fig = fig_to_b64(fig)
+            img_md = f"\n\n![Class Probabilities](data:image/png;base64,{b64_fig})"
+        reply = f"{txt}{img_md}"
+
+    # Route 2: Multitemporal Change
+    elif eff_task == "Multitemporal Change" or eff_model == "Qwen2-VL-7B":
+        p1 = current_files[0] if len(current_files) >= 1 else get_sample_satellite_image()
+        p2 = current_files[1] if len(current_files) >= 2 else get_sample_post_image()
+
+        using_sample_note = "*(Using bundled bi-temporal satellite samples)*\n\n" if not current_files else ""
+
+        cd_txt, mask_img = predict_cdvqa(p1, p2, last_query)
+        mask_md = ""
+        if mask_img is not None:
+            mask_b64 = pil_to_b64(mask_img)
+            mask_md = f"\n\n![Change Mask Overlay](data:image/png;base64,{mask_b64})"
+
+        qwen_txt = predict_qwen2vl(p1, p2, last_query, "", api_key=key_clean)
+        reply = f"{using_sample_note}{cd_txt}{mask_md}\n\n---\n{qwen_txt}"
+
+    # Route 3: Single Image VQA (Grounding, Captioning, VQA)
+    else:
+        p1 = current_files[0] if current_files else get_sample_satellite_image()
+        using_sample_note = "*(Using bundled Sentinel-2 RGB patch)*\n\n" if not current_files else ""
+
+        is_grounding = ("InternVL2" in eff_model) or any(
+            k in last_query.lower() for k in ["ground", "box", "detect", "locate", "where", "water", "forest", "crop"]
+        )
+
+        if is_grounding and "PaliGemma" not in eff_model:
+            ivl_txt, annotated_img = predict_internvl2(p1, last_query, task_mode="Visual Grounding", api_key=key_clean)
+            img_md = ""
+            if annotated_img is not None:
+                img_b64 = pil_to_b64(annotated_img)
+                img_md = f"\n\n![Visual Grounding Overlay](data:image/png;base64,{img_b64})"
+            reply = f"{using_sample_note}{ivl_txt}{img_md}"
+        else:
+            if "InternVL2" in eff_model:
+                reply_txt, _ = predict_internvl2(p1, last_query, task_mode="VQA", api_key=key_clean)
+                reply = f"{using_sample_note}{reply_txt}"
+            else:
+                pali_txt = predict_paligemma(p1, last_query, "", api_key=key_clean)
+                reply = f"{using_sample_note}{pali_txt}"
+
+    history.append((None, reply))
+    return history, current_files
+
+
+def attach_sample(task_mode: str, current_files: List[str]):
+    """Attach bundled satellite samples directly into the input box."""
+    if task_mode == "Multitemporal Change":
+        samples = [get_sample_satellite_image(), get_sample_post_image()]
+    else:
+        samples = [get_sample_satellite_image()]
+    valid_samples = [s for s in samples if s]
+    return {"text": "", "files": valid_samples}, valid_samples
+
+
+def clear_chat():
+    """Clear conversation history and attached file state."""
+    return [], [], {"text": "", "files": []}
+
+
+def set_example_query(query_text: str, task_mode: str, current_files: List[str]):
+    """Populate example prompt and ensure sample image is attached."""
+    if not current_files:
+        if task_mode == "Multitemporal Change":
+            current_files = [get_sample_satellite_image(), get_sample_post_image()]
+        else:
+            current_files = [get_sample_satellite_image()]
+        current_files = [s for s in current_files if s]
+    return {"text": query_text, "files": current_files}, current_files
+
+
+# ---------------------------------------------------------------------------
+# Gradio UI Construction (Ultra-Clean Conversational UI)
 # ---------------------------------------------------------------------------
 def build_ui() -> gr.Blocks:
     theme = gr.themes.Soft(
@@ -559,240 +746,120 @@ def build_ui() -> gr.Blocks:
         secondary_hue="slate",
     )
 
-    with gr.Blocks(title="SatQuery AI - Specialist Model Tester", theme=theme) as demo:
+    with gr.Blocks(title="SatQuery AI", theme=theme) as demo:
         gr.Markdown(
             """
-            # 🛰️ SatQuery AI - Specialist Model Evaluation Suite
-            Interactive multi-modal workbench for Optical-SAR classification, Captioning, VQA, Visual Grounding, and Change Detection.
+            # 🛰️ SatQuery AI
+            **Multi-Modal Earth Observation Assistant** — Chat directly with satellite imagery. Attach images via the pin icon (📎) or test immediately with bundled samples.
             """
         )
 
-        with gr.Accordion("🔑 Live Vision-Language API Setup (Optional: Free 72B / Flash Inference)", open=False):
-            gr.Markdown(
-                "💡 **Connect to Live Free VLMs:** Paste your free **OpenRouter API key** (`sk-or-...`) or **Google AI Studio Gemini API key** (`AIza...`) "
-                "to enable real-time 72B parameter VQA, Grounding, and Captioning. Leave blank to run in fast local simulation mode."
+        with gr.Row():
+            task_mode = gr.Radio(
+                choices=["Single Image VQA", "Multitemporal Change", "Optical SAR Analysis"],
+                value="Single Image VQA",
+                label="🎯 Task Mode",
+                scale=3,
             )
+            model_choice = gr.Dropdown(
+                choices=[
+                    "Auto (Smart)",
+                    "ResNet-18",
+                    "ViT-Base",
+                    "PaliGemma-3B",
+                    "InternVL2-8B",
+                    "Qwen2-VL-7B",
+                ],
+                value="Auto (Smart)",
+                label="🤖 Model",
+                scale=2,
+            )
+
+        with gr.Accordion("🔑 Optional: Live 72B / Flash API Key (OpenRouter or Google Gemini)", open=False):
             api_key_input = gr.Textbox(
-                label="Free API Key (OpenRouter or Google Gemini)",
-                placeholder="sk-or-... or AIza... (optional)",
+                placeholder="sk-or-... or AIza... (Leave blank for fast local simulation)",
+                show_label=False,
                 type="password",
             )
 
-        with gr.Tabs():
+        attached_files_state = gr.State(value=[])
 
-            # -------------------------------------------------------------------
-            # TAB 1: Optical-SAR Land Cover Specialists
-            # -------------------------------------------------------------------
-            with gr.TabItem("📡 1. Optical-SAR Land Cover Specialists"):
-                gr.Markdown(
-                    "### 12-Channel Sentinel-1 (SAR) + Sentinel-2 (Optical) Land Cover Classification\n"
-                    "Select an Optical-SAR classifier to generate frozen sensor priors for VLM prompt injection.\n\n"
-                    "💡 **Available Specialists:**\n"
-                    "- **ResNet-18**: Native Optical-SAR 12-channel convolutional prior generator.\n"
-                    "- **ViT-Base**: Vision Transformer (`vit_base_patch8_224`) capturing multi-head attention across patches.\n"
-                    "- **ResNet-50**: Deep convolutional optical model (`resnet50-s2-v0.2.0`)."
-                )
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        sar_model_choice = gr.Radio(
-                            choices=["ResNet-18", "ViT-Base", "ResNet-50"],
-                            value="ResNet-18",
-                            label="Select Specialist Model Architecture",
-                        )
-                        s2_file = gr.File(
-                            label="Sentinel-2 Optical GeoTIFF (.tif / .tiff / image)",
-                            file_types=[".tif", ".tiff", ".png", ".jpg", ".jpeg"],
-                            file_count="multiple",
-                        )
-                        s1_file = gr.File(
-                            label="Sentinel-1 Radar SAR GeoTIFF (.tif / .tiff)",
-                            file_types=[".tif", ".tiff", ".png", ".jpg", ".jpeg"],
-                            file_count="multiple",
-                        )
-                        top_k_slider = gr.Slider(
-                            minimum=1,
-                            maximum=19,
-                            value=10,
-                            step=1,
-                            label="Top-K Land Cover Classes",
-                        )
-                        with gr.Row():
-                            resnet_btn = gr.Button("🚀 Run Classification Prior Generator", variant="primary")
-                            load_sample_btn = gr.Button("⚡ Auto-Load Bundled Optical + SAR Patch", variant="secondary")
+        chatbot = gr.Chatbot(
+            height=540,
+            show_copy_button=True,
+            bubble_full_width=False,
+            render_markdown=True,
+            label="Conversation",
+        )
 
-                    with gr.Column(scale=1):
-                        resnet_text = gr.Markdown(label="Sensor Prior Output")
-                        resnet_plot = gr.Plot(label="Top-K Probabilities")
-                        resnet_raw = gr.Markdown(label="Raw Probabilities Vector")
+        chat_input = gr.MultimodalTextbox(
+            placeholder="Ask a question about the satellite image, request grounding, or describe changes... (Click 📎 to attach images)",
+            file_types=["image", ".tif", ".tiff"],
+            file_count="multiple",
+            show_label=False,
+        )
 
-                resnet_btn.click(
-                    fn=predict_resnet18,
-                    inputs=[s2_file, s1_file, top_k_slider, sar_model_choice],
-                    outputs=[resnet_text, resnet_plot, resnet_raw],
-                )
-                load_sample_btn.click(
-                    fn=lambda k, m: predict_resnet18(None, None, k, m),
-                    inputs=[top_k_slider, sar_model_choice],
-                    outputs=[resnet_text, resnet_plot, resnet_raw],
-                )
+        with gr.Row():
+            attach_sample_btn = gr.Button("⚡ Attach Bundled Satellite Image", variant="secondary")
+            clear_btn = gr.Button("🗑️ Clear Chat", variant="stop")
 
-            # -------------------------------------------------------------------
-            # TAB 2: PaliGemma-3B
-            # -------------------------------------------------------------------
-            with gr.TabItem("📝 2. PaliGemma-3B (Captioning & VQA)"):
-                gr.Markdown("### Satellite Image Captioning & Prompt-Injected VQA")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        paligemma_img = gr.Image(label="Satellite Image", type="filepath")
-                        paligemma_prefix = gr.Textbox(
-                            label="Task Prompt / Prefix",
-                            value="caption",
-                            placeholder="e.g. caption, or answer en what is in this image?",
-                        )
-                        paligemma_prior = gr.Textbox(
-                            label="Optional Sensor Prior (from ResNet-18 / ViT-Base)",
-                            placeholder="e.g. Broad-leaved forest (67%), Inland wetlands (37%)",
-                        )
-                        paligemma_btn = gr.Button("🚀 Generate Caption / Answer", variant="primary")
+        with gr.Row():
+            ex1 = gr.Button("💬 'Describe the terrain and land cover'", size="sm")
+            ex2 = gr.Button("🎯 'Locate vegetation and water bodies'", size="sm")
+            ex3 = gr.Button("🔄 'Analyze bi-temporal changes between Date 1 and Date 2'", size="sm")
+            ex4 = gr.Button("📡 'Run 12-channel Sentinel-1/2 classification'", size="sm")
 
-                    with gr.Column(scale=1):
-                        paligemma_out = gr.Markdown(label="Output")
+        # Submit handlers
+        chat_input.submit(
+            fn=add_user_message,
+            inputs=[chat_input, chatbot, attached_files_state],
+            outputs=[chat_input, chatbot, attached_files_state],
+        ).then(
+            fn=bot_respond,
+            inputs=[chatbot, attached_files_state, task_mode, model_choice, api_key_input],
+            outputs=[chatbot, attached_files_state],
+        )
 
-                paligemma_btn.click(
-                    fn=predict_paligemma,
-                    inputs=[paligemma_img, paligemma_prefix, paligemma_prior, api_key_input],
-                    outputs=[paligemma_out],
-                )
+        attach_sample_btn.click(
+            fn=attach_sample,
+            inputs=[task_mode, attached_files_state],
+            outputs=[chat_input, attached_files_state],
+        )
 
-            # -------------------------------------------------------------------
-            # TAB 3: InternVL2-8B
-            # -------------------------------------------------------------------
-            with gr.TabItem("🎯 3. InternVL2-8B (VQA & Grounding)"):
-                gr.Markdown("### Remote Sensing VQA & Object Visual Grounding")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        internvl_img = gr.Image(label="Satellite Image", type="filepath")
-                        internvl_mode = gr.Radio(
-                            choices=["Visual Question Answering (VQA)", "Visual Grounding (Bounding Boxes)"],
-                            value="Visual Grounding (Bounding Boxes)",
-                            label="Execution Mode",
-                        )
-                        internvl_query = gr.Textbox(
-                            label="Query / Object Target",
-                            value="water body",
-                            placeholder="e.g. 'water body', 'airport runway', 'storage tanks'",
-                        )
-                        internvl_btn = gr.Button("🚀 Run InternVL2", variant="primary")
+        clear_btn.click(
+            fn=clear_chat,
+            outputs=[chatbot, attached_files_state, chat_input],
+        )
 
-                    with gr.Column(scale=1):
-                        internvl_text = gr.Markdown(label="Answer / Details")
-                        internvl_annotated = gr.Image(label="Grounding Visualization")
-
-                internvl_btn.click(
-                    fn=predict_internvl2,
-                    inputs=[internvl_img, internvl_query, internvl_mode, api_key_input],
-                    outputs=[internvl_text, internvl_annotated],
-                )
-
-            # -------------------------------------------------------------------
-            # TAB 4: Qwen2-VL-7B
-            # -------------------------------------------------------------------
-            with gr.TabItem("🔄 4. Qwen2-VL-7B (Change VQA)"):
-                gr.Markdown("### Bi-Temporal Satellite Change Understanding & VQA")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        qwen_pre = gr.Image(label="Pre-Event Image (Time T0)", type="filepath")
-                        qwen_post = gr.Image(label="Post-Event Image (Time T1)", type="filepath")
-                        qwen_query = gr.Textbox(
-                            label="Change Query",
-                            value="What changes occurred between Date 1 and Date 2?",
-                        )
-                        qwen_prior = gr.Textbox(
-                            label="Optional Sensor Prior",
-                            placeholder="e.g. Urban fabric expansion",
-                        )
-                        qwen_btn = gr.Button("🚀 Analyze Multi-Temporal Changes", variant="primary")
-
-                    with gr.Column(scale=1):
-                        qwen_out = gr.Markdown(label="Change Analysis Output")
-
-                qwen_btn.click(
-                    fn=predict_qwen2vl,
-                    inputs=[qwen_pre, qwen_post, qwen_query, qwen_prior, api_key_input],
-                    outputs=[qwen_out],
-                )
-
-            # -------------------------------------------------------------------
-            # TAB 5: CDVQA Baseline
-            # -------------------------------------------------------------------
-            with gr.TabItem("🔍 5. CDVQA Baseline (Change Mask)"):
-                gr.Markdown("### Dual-Temporal Change Mask Overlay & Surface Statistics")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        cdvqa_img1 = gr.Image(label="Image / Patch 1 (Time T0)", type="filepath")
-                        cdvqa_img2 = gr.Image(label="Image / Patch 2 (Time T1)", type="filepath")
-                        cdvqa_query = gr.Textbox(
-                            label="Analysis Query",
-                            value="Identify changed regions.",
-                        )
-                        cdvqa_btn = gr.Button("🚀 Generate Change Mask", variant="primary")
-
-                    with gr.Column(scale=1):
-                        cdvqa_text = gr.Markdown(label="Change Statistics")
-                        cdvqa_mask = gr.Image(label="Change Mask Overlay (Red = Change)")
-
-                cdvqa_btn.click(
-                    fn=predict_cdvqa,
-                    inputs=[cdvqa_img1, cdvqa_img2, cdvqa_query],
-                    outputs=[cdvqa_text, cdvqa_mask],
-                )
-
-            # -------------------------------------------------------------------
-            # TAB 6: Agentic Orchestrator (Requirement 5)
-            # -------------------------------------------------------------------
-            with gr.TabItem("🤖 6. Agentic Orchestrator (Unified Pipeline)"):
-                gr.Markdown(
-                    "### Autonomous Multi-Model Agent Pipeline\n"
-                    "The agent evaluates your query and satellite images, dynamically invokes and chains specialist tools "
-                    "(**Optical-SAR Specialist** -> **CDVQA** delta mask -> **Qwen2-VL** temporal reasoning -> "
-                    "**InternVL2** visual grounding -> **PaliGemma** captioning & VQA synthesis), "
-                    "and combines the results into an executive intelligence report."
-                )
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        agent_img1 = gr.Image(label="Primary Satellite Image (Time T0)", type="filepath")
-                        agent_img2 = gr.Image(label="Optional Secondary Image (Time T1 for Change Detection)", type="filepath")
-                        agent_prior_choice = gr.Radio(
-                            choices=["ResNet-18", "ViT-Base"],
-                            value="ResNet-18",
-                            label="Select Land Cover Prior Specialist",
-                        )
-                        agent_query = gr.Textbox(
-                            label="User Query / Mission Objective",
-                            value="Identify the land cover types, describe the scene, locate prominent vegetation, and detect any temporal changes.",
-                            lines=3,
-                        )
-                        agent_btn = gr.Button("🚀 Run Agentic Orchestrator", variant="primary")
-
-                    with gr.Column(scale=1):
-                        agent_report = gr.Markdown(label="Executive Report")
-                        agent_viz = gr.Image(label="Annotated Visual Output (Grounding / Changes)")
-                        agent_plan = gr.Markdown(label="Agent Decision & Execution Plan")
-                        agent_trace = gr.Markdown(label="Execution Trace JSON")
-
-                agent_btn.click(
-                    fn=run_agentic_orchestrator,
-                    inputs=[agent_img1, agent_img2, agent_query, agent_prior_choice, api_key_input],
-                    outputs=[agent_report, agent_plan, agent_viz, agent_trace],
-                )
+        ex1.click(
+            fn=lambda f: set_example_query("Describe the terrain and land cover in this scene.", "Single Image VQA", f),
+            inputs=[attached_files_state],
+            outputs=[chat_input, attached_files_state],
+        )
+        ex2.click(
+            fn=lambda f: set_example_query("Locate vegetation and water bodies.", "Single Image VQA", f),
+            inputs=[attached_files_state],
+            outputs=[chat_input, attached_files_state],
+        )
+        ex3.click(
+            fn=lambda f: set_example_query("Analyze bi-temporal changes between Date 1 and Date 2.", "Multitemporal Change", f),
+            inputs=[attached_files_state],
+            outputs=[chat_input, attached_files_state],
+        )
+        ex4.click(
+            fn=lambda f: set_example_query("Run 12-channel Sentinel-1/2 Optical-SAR classification.", "Optical SAR Analysis", f),
+            inputs=[attached_files_state],
+            outputs=[chat_input, attached_files_state],
+        )
 
     return demo
 
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  SatQuery AI - Interactive Web UI Starting")
+    print("  SatQuery AI - Interactive Chat Web UI Starting")
     print("  Access the Web UI in your browser at: http://127.0.0.1:7860")
     print("=" * 60)
     app = build_ui()
     app.launch(share=False, server_name="127.0.0.1", server_port=7860, inbrowser=True)
+

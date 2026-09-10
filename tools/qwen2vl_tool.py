@@ -238,17 +238,17 @@ class Qwen2VLTool:
                         "with no substantial land-cover transformation or new structural developments. "
                         "Minor radiometric variances are consistent with seasonal or illumination changes." + prior_clause
                     )
-            elif diff < 0.15:
-                answer = (
-                    f"Moderate localized changes observed between Date 1 and Date 2 (delta ~{diff*100:.1f}%). "
-                    "Surface variations indicate potential vegetation cycle shifts, clearing, or parcel-level activity." + prior_clause
-                )
-            else:
-                answer = (
-                    f"Significant structural and spectral changes detected across the bi-temporal sequence (delta ~{diff*100:.1f}%). "
-                    "Major land alteration, construction, or ground clearing is evident between the observation periods." + prior_clause
-                )
-            model_info = f"{self.model_name} (SatQuery Bi-Temporal Engine)"
+                elif diff < 0.15:
+                    answer = (
+                        f"Moderate localized changes observed between Date 1 and Date 2 (delta ~{diff*100:.1f}%). "
+                        "Surface variations indicate potential vegetation cycle shifts, clearing, or parcel-level activity." + prior_clause
+                    )
+                else:
+                    answer = (
+                        f"Significant structural and spectral changes detected across the bi-temporal sequence (delta ~{diff*100:.1f}%). "
+                        "Major land alteration, construction, or ground clearing is evident between the observation periods." + prior_clause
+                    )
+                model_info = f"{self.model_name} (SatQuery Bi-Temporal Engine)"
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
         return {

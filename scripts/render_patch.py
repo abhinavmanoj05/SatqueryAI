@@ -27,17 +27,38 @@ def main():
     g = load_band("B03", "tiff")
     b = load_band("B02", "tiff")
 
-    # clip to display range and normalize to 8-bit
-    def to8bit(x):
-        x = np.clip(x, 0, 8000)  # Sentinel-2 reflectance range
-        return (x / 8000 * 255).astype("uint8")
+def stretch(band: np.ndarray) -> np.ndarray:
+    p2 = np.percentile(band, 2)
+    p98 = np.percentile(band, 98)
+    if p98 <= p2:
+        return np.zeros_like(band, dtype=np.uint8)
+    clipped = np.clip(band, p2, p98)
+    return ((clipped - p2) / (p98 - p2) * 255).astype(np.uint8)
 
-    img = np.stack([to8bit(r), to8bit(g), to8bit(b)], axis=-1)
-    im = Image.fromarray(img, "RGB")
+
+def main():
+    # True color: B04 (red), B03 (green), B02 (blue) - all 10m, already 120x120
+    r = load_band("B04", "tiff")
+    g = load_band("B03", "tiff")
+    b = load_band("B02", "tiff")
+
+    rgb = np.stack([stretch(r), stretch(g), stretch(b)], axis=-1)
+    im = Image.fromarray(rgb, "RGB")
     im = im.resize((480, 480), Image.NEAREST)  # upscale for visibility
     im.save(OUT)
     print("Saved RGB patch to:", OUT)
 
+    # Also render a post-event patch simulating land-use modification for bi-temporal testing
+    post_rgb = rgb.copy()
+    post_rgb[15:55, 60:110, 0] = 200  # soil/clearing alteration
+    post_rgb[15:55, 60:110, 1] = 180
+    post_rgb[15:55, 60:110, 2] = 140
+    post_out = Path(__file__).resolve().parent / "sample_patch_post.png"
+    im_post = Image.fromarray(post_rgb, "RGB").resize((480, 480), Image.NEAREST)
+    im_post.save(post_out)
+    print("Saved post-change RGB patch to:", post_out)
+
 
 if __name__ == "__main__":
     main()
+
