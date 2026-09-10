@@ -109,6 +109,23 @@ export default function Workspace() {
       )
     } catch (err) {
       console.error('Execution error:', err)
+      const errorMsg: ChatMessage = {
+        id: `msg-${Date.now()}-err`,
+        role: 'assistant',
+        content: `⚠️ Error executing request: ${err instanceof Error ? err.message : String(err)}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id === activeSessionId) {
+            return {
+              ...s,
+              messages: [...s.messages, errorMsg],
+            }
+          }
+          return s
+        })
+      )
     } finally {
       setIsLoading(false)
     }

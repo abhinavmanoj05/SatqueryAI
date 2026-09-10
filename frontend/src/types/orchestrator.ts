@@ -26,7 +26,7 @@ export interface VisualEvidence {
 
 export interface ExecutionTrace {
   /** Routed task name */
-  task: 'vqa' | 'captioning' | 'grounding' | 'change_detection' | 'fusion' | 'land_cover_analysis'
+  task: 'vqa' | 'captioning' | 'grounding' | 'change_detection' | 'fusion' | 'land_cover_analysis' | 'conversational'
   /** Specialist models invoked in order */
   models_used: string[]
   /** Model-specific parameters used for this run */
@@ -39,6 +39,8 @@ export interface ExecutionTrace {
   duration_ms: number
   /** Human-readable confidence label */
   confidence_label?: 'High' | 'Medium' | 'Low'
+  /** Cognitive thinking / rationale of the orchestrator */
+  thinking?: string
 }
 
 export interface OrchestratorResponse {

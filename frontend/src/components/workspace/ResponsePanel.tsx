@@ -1,4 +1,5 @@
-import { ShieldCheck, Crosshair, BarChart2, Layers, CheckCircle2 } from 'lucide-react'
+import { useState } from 'react'
+import { ShieldCheck, Crosshair, BarChart2, Layers, CheckCircle2, Brain, ChevronDown, ChevronUp } from 'lucide-react'
 import type { ChatMessage, OrchestratorResponse } from '@/types/orchestrator'
 
 interface ResponsePanelProps {
@@ -16,7 +17,7 @@ export default function ResponsePanel({ messages, isLoading }: ResponsePanelProp
         <h3 className="text-base font-semibold text-navy mb-1">SatQuery AI Workspace</h3>
         <p className="text-xs text-navy-500 max-w-md leading-relaxed">
           Upload satellite imagery in the panel above and type your analysis query below.
-          The LangGraph agent will dynamically select specialist models and ground answers with visual evidence.
+          The cognitive LangGraph orchestrator will reason about your request, select specialist models, and ground answers with visual evidence.
         </p>
       </div>
     )
@@ -37,8 +38,12 @@ export default function ResponsePanel({ messages, isLoading }: ResponsePanelProp
           )}
 
           {/* Assistant Response */}
-          {msg.role === 'assistant' && msg.response && (
-            <AssistantResponseCard response={msg.response} timestamp={msg.timestamp} />
+          {msg.role === 'assistant' && (
+            <AssistantResponseCard
+              response={msg.response}
+              fallbackContent={msg.content}
+              timestamp={msg.timestamp}
+            />
           )}
         </div>
       ))}
@@ -64,12 +69,32 @@ export default function ResponsePanel({ messages, isLoading }: ResponsePanelProp
 
 function AssistantResponseCard({
   response,
+  fallbackContent,
   timestamp,
 }: {
-  response: OrchestratorResponse
+  response?: OrchestratorResponse
+  fallbackContent?: string
   timestamp: string
 }) {
-  const { final_answer, visual_evidence, confidence, execution_trace } = response
+  const [showThinking, setShowThinking] = useState(true)
+
+  if (!response) {
+    return (
+      <div className="bg-white rounded-2xl border border-navy-100 p-5 shadow-card space-y-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-navy uppercase">
+          <CheckCircle2 className="w-4 h-4 text-saffron" />
+          <span>Agent Intelligence Response</span>
+        </div>
+        <div className="text-sm text-navy-800 leading-relaxed whitespace-pre-line">
+          {fallbackContent || 'No response content available.'}
+        </div>
+        <div className="text-[10px] text-navy-400 font-mono">{timestamp}</div>
+      </div>
+    )
+  }
+
+  const { final_answer, visual_evidence, confidence = 0.8, execution_trace } = response
+  const evidence = visual_evidence || {}
 
   const confidencePct = Math.round(confidence * 100)
   const confidenceColor =
@@ -78,6 +103,12 @@ function AssistantResponseCard({
       : confidence >= 0.6
       ? 'text-amber-700 bg-amber-50 border-amber-200'
       : 'text-red-700 bg-red-50 border-red-200'
+
+  const hasVisualEvidence = Boolean(
+    (evidence.top_k && evidence.top_k.length > 0) ||
+    (evidence.boxes && evidence.boxes.length > 0) ||
+    evidence.change_mask
+  )
 
   return (
     <div className="bg-white rounded-2xl border border-navy-100 p-5 shadow-card space-y-5">
@@ -105,13 +136,39 @@ function AssistantResponseCard({
         </div>
       </div>
 
+      {/* Orchestrator Cognitive Thinking Rationale */}
+      {execution_trace?.thinking && (
+        <div className="bg-navy-50/80 rounded-xl p-3.5 border border-navy-200/70 space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowThinking(!showThinking)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-navy-800 uppercase tracking-wider">
+              <Brain className="w-3.5 h-3.5 text-saffron" />
+              <span>Orchestrator Cognitive Rationale & Thinking</span>
+            </div>
+            {showThinking ? (
+              <ChevronUp className="w-4 h-4 text-navy-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-navy-400" />
+            )}
+          </button>
+          {showThinking && (
+            <p className="text-xs text-navy-700 leading-relaxed font-sans pt-1 border-t border-navy-200/50">
+              {execution_trace.thinking}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Answer Body */}
       <div className="text-sm text-navy-800 leading-relaxed space-y-3 whitespace-pre-line font-normal">
-        {final_answer}
+        {final_answer || fallbackContent}
       </div>
 
       {/* Visual Evidence Section */}
-      {(visual_evidence.top_k || visual_evidence.boxes || visual_evidence.change_mask) && (
+      {hasVisualEvidence && (
         <div className="bg-navy-50/50 rounded-xl p-4 border border-navy-100 space-y-4">
           <div className="flex items-center gap-2 text-xs font-bold text-navy uppercase tracking-wider">
             <BarChart2 className="w-4 h-4 text-saffron" />
@@ -119,13 +176,13 @@ function AssistantResponseCard({
           </div>
 
           {/* Top-K Probability Bars */}
-          {visual_evidence.top_k && visual_evidence.top_k.length > 0 && (
+          {evidence.top_k && evidence.top_k.length > 0 && (
             <div className="space-y-2.5">
               <span className="text-xs font-medium text-navy-600 block">
                 CORINE Land Cover Predictions
               </span>
               <div className="space-y-2">
-                {visual_evidence.top_k.map((item, idx) => {
+                {evidence.top_k.map((item, idx) => {
                   const prob = Math.round(item.probability * 100)
                   return (
                     <div key={idx} className="space-y-1">
@@ -147,14 +204,14 @@ function AssistantResponseCard({
           )}
 
           {/* Bounding Box Visual Evidence */}
-          {visual_evidence.boxes && visual_evidence.boxes.length > 0 && (
+          {evidence.boxes && evidence.boxes.length > 0 && (
             <div className="space-y-2 pt-2 border-t border-navy-100">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-navy-700">
                 <Crosshair className="w-3.5 h-3.5 text-saffron" />
-                <span>Localized Bounding Boxes ({visual_evidence.boxes.length} targets)</span>
+                <span>Localized Bounding Boxes ({evidence.boxes.length} targets)</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {visual_evidence.boxes.map((box, i) => (
+                {evidence.boxes.map((box, i) => (
                   <div
                     key={i}
                     className="p-2.5 bg-white rounded-lg border border-navy-100 text-xs text-navy-700 flex flex-col gap-1"
@@ -177,14 +234,14 @@ function AssistantResponseCard({
           )}
 
           {/* Change Mask Evidence */}
-          {visual_evidence.change_mask && (
+          {evidence.change_mask && (
             <div className="space-y-2 pt-2 border-t border-navy-100">
               <span className="text-xs font-semibold text-navy-700 block">
                 Temporal Change Delta Mask
               </span>
               <div className="p-2 bg-white rounded-lg border border-navy-100 inline-block">
                 <img
-                  src={visual_evidence.change_mask}
+                  src={evidence.change_mask}
                   alt="Detected change mask overlay"
                   className="max-h-40 rounded border border-navy-100 object-contain bg-navy-900"
                 />
@@ -196,8 +253,8 @@ function AssistantResponseCard({
 
       {/* Model Footnote */}
       <div className="text-[11px] text-navy-400 flex items-center justify-between pt-1">
-        <span>Models: {execution_trace.models_used.join(' → ')}</span>
-        <span>Duration: {execution_trace.duration_ms.toFixed(0)} ms</span>
+        <span>Models: {execution_trace?.models_used?.join(' → ') || 'Orchestrator'}</span>
+        <span>Duration: {execution_trace?.duration_ms ? execution_trace.duration_ms.toFixed(0) : '0'} ms</span>
       </div>
     </div>
   )

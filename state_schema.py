@@ -55,9 +55,10 @@ PrimaryTask = Literal[
     "change_detection",
     "fusion",
     "land_cover_analysis",
+    "conversational",
 ]
 
-Modality = Literal["optical", "sar", "both"]
+Modality = Literal["optical", "sar", "both", "none"]
 
 
 class IntentSchema(BaseModel):
@@ -73,7 +74,7 @@ class IntentSchema(BaseModel):
     """
 
     primary_task: PrimaryTask = "vqa"
-    input_count: int = Field(default=1, ge=1, le=8)
+    input_count: int = Field(default=1, ge=0, le=8)
     requires_spatial_output: bool = False
     expected_modality: Modality = "optical"
 
@@ -115,6 +116,8 @@ class ExecutionTrace(TypedDict, total=False):
     input_count: int
     timestamp: str
     duration_ms: float
+    thinking: Optional[str]
+    confidence_label: Optional[str]
 
 
 class SatQueryState(TypedDict, total=False):
@@ -133,10 +136,13 @@ class SatQueryState(TypedDict, total=False):
     # Input fields
     user_query: str
     uploaded_files: List[UploadedFile]
+    api_key: Optional[str]
 
     # Parsed intent (validated against IntentSchema, stored as plain dict
     # for JSON-serializability / checkpointing)
     intent: Optional[Dict[str, Any]]
+    thinking: Optional[str]
+    conversational_answer: Optional[str]
 
     # Validation
     validation_result: Optional[ValidationResult]

@@ -48,8 +48,13 @@ except ImportError:
     from internvl2_tool import InternVL2Tool
     from paligemma_tool import PaliGemmaTool
     from qwen2vl_tool import Qwen2VLTool
-    from resnet_tool import ResNet18Tool
-    from vlm_api_tool import call_grounding_vlm, call_live_vlm
+    from tools.resnet_tool import ResNet18Tool
+    from tools.vlm_api_tool import call_grounding_vlm, call_live_vlm
+
+try:
+    from nlp_brain import understand_query_with_nlp_brain
+except ImportError:
+    from .nlp_brain import understand_query_with_nlp_brain
 
 logger = logging.getLogger("satquery.orchestrator")
 
@@ -62,6 +67,7 @@ _ROUTING_MAP = {
     "change_detection": "change_detection_node",
     "fusion": "fusion_node",
     "land_cover_analysis": "fusion_node",
+    "conversational": "conversational_node",
 }
 
 _MODELS: Dict[str, Any] = {
@@ -138,11 +144,22 @@ def make_query_parser(llm: Optional[Any] = None):
     def query_parser(state: SatQueryState) -> Dict[str, Any]:
         query = state.get("user_query", "")
         num_files = len(state.get("uploaded_files", []))
+        api_key = state.get("api_key")
 
         if llm is not None:
             intent = classify_intent_llm(llm, query, num_files)
+            thinking = "LLM analyzed user query and classified intent."
+            conversational_answer = None
         else:
-            intent = classify_intent_rule_based(query, num_files)
+            decision = understand_query_with_nlp_brain(query, num_files, api_key=api_key)
+            intent = IntentSchema(
+                primary_task=decision.task,
+                input_count=decision.input_count,
+                requires_spatial_output=decision.requires_spatial_output,
+                expected_modality=decision.expected_modality if decision.expected_modality in ("optical", "sar", "both", "none") else "optical",
+            )
+            thinking = decision.thinking
+            conversational_answer = decision.direct_response
 
         if not isinstance(intent, IntentSchema):
             try:
@@ -150,7 +167,11 @@ def make_query_parser(llm: Optional[Any] = None):
             except Exception:
                 intent = IntentSchema()
 
-        return {"intent": intent.model_dump()}
+        return {
+            "intent": intent.model_dump(),
+            "thinking": thinking,
+            "conversational_answer": conversational_answer,
+        }
 
     return query_parser
 
@@ -161,7 +182,19 @@ def make_query_parser(llm: Optional[Any] = None):
 def validation_gate(state: SatQueryState) -> Dict[str, Any]:
     intent = state.get("intent") or {}
     files = state.get("uploaded_files", [])
+    task = intent.get("primary_task", "vqa")
     errors = []
+
+    # Conversational queries with 0 files uploaded bypass image file validation
+    if (task == "conversational" or state.get("conversational_answer")) and len(files) == 0:
+        return {
+            "validation_result": {
+                "is_valid": True,
+                "error_message": None,
+                "validated_files": files,
+            },
+            "error": None,
+        }
 
     expected_modality = intent.get("expected_modality", "optical")
     expected_count = intent.get("input_count", 1)
@@ -466,6 +499,25 @@ def fusion_node(state: SatQueryState) -> Dict[str, Any]:
     }
 
 
+def conversational_node(state: SatQueryState) -> Dict[str, Any]:
+    """Handles conversational dialogue, guidance, and remote sensing QA when no imagery is provided."""
+    answer = (
+        state.get("conversational_answer")
+        or "I am SatQuery AI, your satellite remote-sensing intelligence assistant. Please upload imagery to run specialist analyses."
+    )
+    return {
+        "tool_outputs": {
+            **state.get("tool_outputs", {}),
+            "conversational": {
+                "answer": answer,
+                "confidence": 0.95,
+                "model": "SatQuery Cognitive NLP Brain",
+                "duration_ms": 120.0,
+            },
+        }
+    }
+
+
 # ---------------------------------------------------------------------------
 # NODE 4: output_combinator
 # ---------------------------------------------------------------------------
@@ -473,6 +525,7 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
     tool_outputs = state.get("tool_outputs", {})
     intent = state.get("intent") or {}
     task_name = intent.get("primary_task", "unknown")
+    thinking = state.get("thinking") or "Orchestrator selected specialist pipeline based on input modality and task taxonomy."
 
     execution_trace: Dict[str, Any] = {
         "task": task_name,
@@ -481,22 +534,30 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
         "input_count": len(state.get("uploaded_files", [])),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "duration_ms": 0.0,
+        "thinking": thinking,
     }
 
     node_error = state.get("error")
     if node_error and not tool_outputs:
         return {
             "final_answer": f"Unable to process the query: {node_error}",
-            "visual_evidence": None,
+            "visual_evidence": {},
             "confidence": 0.0,
             "execution_trace": execution_trace,
         }
 
     final_answer = ""
-    visual_evidence: Any = None
+    visual_evidence: Any = {}
     confidence = 0.0
 
-    if "vqa" in tool_outputs:
+    if "conversational" in tool_outputs:
+        final_answer = tool_outputs["conversational"]["answer"]
+        confidence = tool_outputs["conversational"].get("confidence", 0.95)
+        model_used = tool_outputs["conversational"].get("model", "SatQuery Cognitive NLP Brain")
+        execution_trace["models_used"] = [model_used]
+        execution_trace["duration_ms"] = tool_outputs["conversational"].get("duration_ms", 120.0)
+
+    elif "vqa" in tool_outputs:
         final_answer = tool_outputs["vqa"]["answer"]
         confidence = tool_outputs["vqa"].get("confidence", 0.88)
         model_used = tool_outputs["vqa"].get("model", "InternVL2-8B")
@@ -521,7 +582,7 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
 
     elif "change_detection" in tool_outputs:
         final_answer = tool_outputs["change_detection"]["answer"]
-        visual_evidence = tool_outputs["change_detection"].get("change_mask")
+        visual_evidence = {"change_mask": tool_outputs["change_detection"].get("change_mask")}
         confidence = tool_outputs["change_detection"].get("confidence", 0.85)
         model_used = tool_outputs["change_detection"].get("model", "Qwen2-VL-7B")
         execution_trace["models_used"] = [model_used] if "Qwen2-VL" in model_used else [model_used, "Qwen2-VL-7B"]
@@ -548,7 +609,7 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
 
     return {
         "final_answer": final_answer,
-        "visual_evidence": visual_evidence,
+        "visual_evidence": visual_evidence or {},
         "confidence": round(confidence, 2),
         "execution_trace": execution_trace,
     }
@@ -563,6 +624,7 @@ def build_graph(llm: Optional[Any] = None):
     builder.add_node("query_parser", make_query_parser(llm))
     builder.add_node("validation_gate", validation_gate)
     builder.add_node("task_router", task_router)
+    builder.add_node("conversational_node", conversational_node)
     builder.add_node("vqa_node", vqa_node)
     builder.add_node("captioning_node", captioning_node)
     builder.add_node("grounding_node", grounding_node)
@@ -588,6 +650,7 @@ def build_graph(llm: Optional[Any] = None):
             "grounding_node": "grounding_node",
             "change_detection_node": "change_detection_node",
             "fusion_node": "fusion_node",
+            "conversational_node": "conversational_node",
             "error": END,
         },
     )
@@ -598,6 +661,7 @@ def build_graph(llm: Optional[Any] = None):
         "grounding_node",
         "change_detection_node",
         "fusion_node",
+        "conversational_node",
     ):
         builder.add_edge(specialist, "output_combinator")
 

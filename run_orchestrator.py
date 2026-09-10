@@ -43,6 +43,7 @@ def run_satquery(
         "messages": [],
         "user_query": user_query,
         "uploaded_files": uploaded_files,
+        "api_key": api_key,
         "tool_outputs": {},
     }
 
@@ -64,6 +65,7 @@ def run_satquery(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "duration_ms": duration_ms,
             "confidence_label": "Low",
+            "thinking": result.get("thinking", ""),
         }
         if not result.get("final_answer"):
             err = result.get("error", "Validation error")
@@ -71,6 +73,8 @@ def run_satquery(
         result.setdefault("confidence", 0.0)
 
     result.setdefault("tool_outputs", {})
+    if result.get("visual_evidence") is None:
+        result["visual_evidence"] = {}
     return result
 
 

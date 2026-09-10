@@ -177,12 +177,29 @@ const MOCK_RESPONSES: Record<OrchestratorResponse['execution_trace']['task'], ()
     confidence: 0.83,
     execution_trace: {
       task: 'land_cover_analysis',
-      models_used: ['ResNet-18'],
-      parameters: { top_k: 6, input_channels: 12, resolution: '120x120', checkpoint: 'BIFOLD-BigEarthNetv2-0/resnet18-all-v0.2.0' },
+      models_used: ['ViT-Base (BigEarthNet 12-channel)'],
+      parameters: { top_k: 6, input_channels: 12, resolution: '120x120', checkpoint: 'BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0' },
       input_count: 1,
       timestamp: now(),
       duration_ms: 487.6,
       confidence_label: 'High',
+    },
+  }),
+
+  conversational: () => ({
+    final_answer:
+      '👋 Welcome to SatQuery AI. Upload satellite imagery in the panel above to begin specialist VQA, Grounding, Scene Captioning, or Optical-SAR Fusion analysis.',
+    visual_evidence: {},
+    confidence: 0.95,
+    execution_trace: {
+      task: 'conversational',
+      models_used: ['SatQuery Cognitive NLP Brain'],
+      parameters: {},
+      input_count: 0,
+      timestamp: now(),
+      duration_ms: 120.0,
+      confidence_label: 'High',
+      thinking: 'User entered a conversational or preparatory query with no imagery attached.',
     },
   }),
 }

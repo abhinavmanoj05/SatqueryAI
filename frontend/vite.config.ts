@@ -13,12 +13,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Proxy /api requests to the LangGraph backend
-      // Swap the target URL when the real backend is running
+      // Proxy /api requests to the LangGraph FastAPI backend
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },

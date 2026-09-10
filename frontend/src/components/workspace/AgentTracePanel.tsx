@@ -1,4 +1,4 @@
-import { Terminal, Activity, ChevronLeft, ChevronRight, CheckCircle2, Clock } from 'lucide-react'
+import { Terminal, Activity, ChevronLeft, ChevronRight, CheckCircle2, Clock, Brain } from 'lucide-react'
 import type { ExecutionTrace } from '@/types/orchestrator'
 
 interface AgentTracePanelProps {
@@ -50,6 +50,19 @@ export default function AgentTracePanel({ trace, isOpen, onToggle }: AgentTraceP
                   <span className="text-navy-400">Task:</span> <span className="font-bold text-saffron">{trace.task}</span>
                 </div>
               </div>
+
+              {/* Cognitive Thinking & Rationale */}
+              {trace.thinking && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-[11px] text-navy-500 font-semibold uppercase tracking-wider">
+                    <Brain className="w-3.5 h-3.5 text-saffron" />
+                    <span>Cognitive Reasoning</span>
+                  </div>
+                  <div className="p-2.5 bg-sky-base/30 rounded-lg border border-sky-100 text-[11px] leading-relaxed text-navy-700 font-sans">
+                    {trace.thinking}
+                  </div>
+                </div>
+              )}
 
               {/* Specialist Chain */}
               <div className="space-y-1.5">
