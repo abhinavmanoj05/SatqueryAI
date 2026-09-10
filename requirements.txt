@@ -1,0 +1,8 @@
+langgraph>=0.2.0
+langchain-core>=0.3.0
+pydantic>=2.0.0
+pytest>=7.0.0
+# Optional, only needed if you inject a real LLM into query_parser via
+# build_graph(llm=...) / run_satquery(..., llm=...):
+# langchain-openai>=0.2.0
+# langchain-anthropic>=0.2.0
