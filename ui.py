@@ -60,6 +60,8 @@ except ImportError:
 # Global lazy model store
 MODELS: Dict[str, Any] = {
     "ResNet-18": None,
+    "ViT-Base": None,
+    "ResNet-50": None,
     "PaliGemma": None,
     "InternVL2": None,
     "Qwen2-VL": None,
@@ -74,13 +76,17 @@ def get_device() -> str:
 
 def get_model(name: str) -> Any:
     """Lazily load models upon first user request."""
-    if MODELS[name] is not None:
+    if MODELS.get(name) is not None:
         return MODELS[name]
 
     device = get_device()
 
     if name == "ResNet-18":
-        MODELS[name] = ResNet18Tool(device=device)
+        MODELS[name] = ResNet18Tool(model_name="BIFOLD-BigEarthNetv2-0/resnet18-all-v0.2.0", device=device)
+    elif name == "ViT-Base":
+        MODELS[name] = ResNet18Tool(model_name="BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0", device=device)
+    elif name == "ResNet-50":
+        MODELS[name] = ResNet18Tool(model_name="BIFOLD-BigEarthNetv2-0/resnet50-s2-v0.2.0", device=device)
     elif name == "PaliGemma":
         try:
             from tools.paligemma_tool import PaliGemmaTool
@@ -159,25 +165,27 @@ def plot_probabilities(top_k_items: List[Dict[str, Any]]) -> plt.Figure:
 
 
 # ---------------------------------------------------------------------------
-# 1. ResNet-18 Inference
+# 1. Optical-SAR Land Cover Classification
 # ---------------------------------------------------------------------------
 def predict_resnet18(
     s2_file: Any = None,
     s1_file: Any = None,
     top_k: int = 10,
+    model_name: str = "ResNet-18",
 ) -> Tuple[str, Optional[plt.Figure], str]:
-    """Execute ResNet-18 optical-SAR classification."""
+    """Execute optical-SAR classification with selectable specialist model."""
     try:
         s2_path = _extract_file_path(s2_file)
         s1_path = _extract_file_path(s1_file)
 
-        tool = get_model("ResNet-18")
+        tool = get_model(model_name)
         result = tool.predict(s2_path=s2_path, s1_path=s1_path, top_k=int(top_k))
 
         summary_text = (
-            f"### 🛰️ Sensor Prior Output\n\n"
+            f"### 🛰️ Sensor Prior Output ({model_name})\n\n"
             f"> **{result['sensor_prior']}**\n\n"
             f"**Max Confidence:** `{result['confidence'] * 100:.2f}%`\n"
+            f"**Model ID:** `{result['execution_trace']['model']}`\n"
             f"**Inference Time:** `{result['execution_trace']['inference_time_ms']} ms`\n"
             f"**Execution Device:** `{result['execution_trace']['device']}`"
         )
@@ -199,6 +207,7 @@ def predict_paligemma(
     image_file: Any,
     prefix_prompt: str,
     sensor_prior: str,
+    api_key: Optional[str] = None,
 ) -> str:
     """Execute PaliGemma image captioning or VQA."""
     try:
@@ -207,16 +216,19 @@ def predict_paligemma(
             return "Error: Please upload an image."
 
         tool = get_model("PaliGemma")
+        key_clean = api_key.strip() if api_key and api_key.strip() else None
         res = tool.generate_caption(
             image=img_path,
             prefix=prefix_prompt.strip() or "caption",
             sensor_prior=sensor_prior.strip() if sensor_prior.strip() else None,
+            api_key=key_clean,
         )
 
         output = (
             f"### 📝 Generated Caption\n\n"
             f"{res['caption']}\n\n"
             f"---\n"
+            f"**Engine / Model:** `{res['execution_trace']['model']}`\n"
             f"**Prompt Used:** `{res['prompt']}`\n"
             f"**Inference Time:** `{res['execution_trace']['inference_time_ms']} ms`"
         )
@@ -234,6 +246,7 @@ def predict_internvl2(
     image_file: Any,
     query: str,
     task_mode: str,
+    api_key: Optional[str] = None,
 ) -> Tuple[str, Optional[Image.Image]]:
     """Execute InternVL2 for VQA or Grounding."""
     try:
@@ -243,9 +256,10 @@ def predict_internvl2(
 
         tool = get_model("InternVL2")
         pil_img = Image.open(img_path).convert("RGB")
+        key_clean = api_key.strip() if api_key and api_key.strip() else None
 
         if "Grounding" in task_mode:
-            res = tool.grounding(img_path, query.strip() or "detect objects")
+            res = tool.grounding(img_path, query.strip() or "detect objects", api_key=key_clean)
             boxes = res["boxes"]
 
             # Draw bounding boxes on PIL image
@@ -265,16 +279,18 @@ def predict_internvl2(
             text_out = (
                 f"### 🎯 Visual Grounding Results\n\n"
                 f"**Query:** `{query}`\n"
+                f"**Engine / Model:** `{res['execution_trace']['model']}`\n"
                 f"**Detected Bounding Boxes:** `{len(boxes)}` found\n"
                 f"**Coordinates:** `{boxes}`\n"
                 f"**Inference Time:** `{res['execution_trace']['inference_time_ms']} ms`"
             )
             return text_out, annotated
         else:
-            res = tool.vqa(img_path, query.strip() or "Describe this satellite image.")
+            res = tool.vqa(img_path, query.strip() or "Describe this satellite image.", api_key=key_clean)
             text_out = (
                 f"### 💬 VQA Answer\n\n"
                 f"{res['answer']}\n\n"
+                f"**Engine / Model:** `{res['execution_trace']['model']}`\n"
                 f"**Question:** `{query}`\n"
                 f"**Inference Time:** `{res['execution_trace']['inference_time_ms']} ms`"
             )
@@ -293,6 +309,7 @@ def predict_qwen2vl(
     img_post_file: Any,
     query: str,
     sensor_prior: str,
+    api_key: Optional[str] = None,
 ) -> str:
     """Execute Qwen2-VL bi-temporal change analysis."""
     try:
@@ -303,17 +320,20 @@ def predict_qwen2vl(
             return "Error: Please upload both Pre-event (Date 1) and Post-event (Date 2) images."
 
         tool = get_model("Qwen2-VL")
+        key_clean = api_key.strip() if api_key and api_key.strip() else None
         res = tool.test_change_vqa(
             image_pre=pre_path,
             image_post=post_path,
             question=query.strip() or "Describe the visual and structural changes between Date 1 and Date 2.",
             sensor_prior=sensor_prior.strip() if sensor_prior.strip() else None,
+            api_key=key_clean,
         )
 
         output = (
             f"### 🔄 Change Analysis & VQA\n\n"
             f"{res['answer']}\n\n"
             f"---\n"
+            f"**Engine / Model:** `{res['execution_trace']['model']}`\n"
             f"**Question:** `{query}`\n"
             f"**Inference Time:** `{res['execution_trace']['inference_time_ms']} ms`"
         )
@@ -373,6 +393,8 @@ def run_agentic_orchestrator(
     img_primary: Any,
     img_secondary: Any,
     user_query: str,
+    prior_model: str = "ResNet-18",
+    api_key: Optional[str] = None,
 ) -> Tuple[str, str, Optional[Image.Image], str]:
     """
     Autonomous multi-model agent that evaluates satellite inputs & user query,
@@ -384,6 +406,7 @@ def run_agentic_orchestrator(
         p1 = _extract_file_path(img_primary)
         p2 = _extract_file_path(img_secondary)
         query = user_query.strip() if user_query else "Analyze the land cover, features, and any detectable changes."
+        key_clean = api_key.strip() if api_key and api_key.strip() else None
 
         if not p1:
             sample_p = Path(__file__).resolve().parent / "sample_patch_rgb.png"
@@ -398,15 +421,15 @@ def run_agentic_orchestrator(
         annotated_image = pil_p1.copy()
         sensor_prior = ""
 
-        # Step 1: Decide if ResNet-18 Land Cover / SAR Prior is needed
-        plan_steps.append("1. **Analyze Spectral Characteristics & Prior**: Invoke `ResNet-18` Optical-SAR classifier.")
-        resnet_tool = get_model("ResNet-18")
+        # Step 1: Decide if Land Cover / SAR Prior is needed
+        plan_steps.append(f"1. **Analyze Spectral Characteristics & Prior**: Invoke `{prior_model}` Optical-SAR classifier.")
+        prior_tool = get_model(prior_model)
         try:
-            res_pred = resnet_tool.predict(s2_path=p1, top_k=3)
+            res_pred = prior_tool.predict(s2_path=p1, top_k=3)
             sensor_prior = res_pred["sensor_prior"]
             tools_executed.append({
                 "step": 1,
-                "tool": "ResNet-18 Optical-SAR Classifier",
+                "tool": f"{prior_model} Optical-SAR Classifier",
                 "purpose": "Generate land cover priors & confidence scores",
                 "output": sensor_prior,
                 "latency_ms": res_pred["execution_trace"]["inference_time_ms"]
@@ -414,7 +437,7 @@ def run_agentic_orchestrator(
         except Exception as e:
             tools_executed.append({
                 "step": 1,
-                "tool": "ResNet-18",
+                "tool": prior_model,
                 "error": str(e)
             })
 
@@ -431,7 +454,7 @@ def run_agentic_orchestrator(
             stats = cd_res["mask_stats"]
             
             qwen_tool = get_model("Qwen2-VL")
-            qwen_res = qwen_tool.test_change_vqa(p1, target_p2, query, sensor_prior=sensor_prior)
+            qwen_res = qwen_tool.test_change_vqa(p1, target_p2, query, sensor_prior=sensor_prior, api_key=key_clean)
             change_info = qwen_res["answer"]
             
             if stats["total_changed_pixels"] > 0:
@@ -456,7 +479,7 @@ def run_agentic_orchestrator(
             plan_steps.append("3. **Visual Grounding**: Invoke `InternVL2-8B` to extract localized bounding boxes.")
             internvl_tool = get_model("InternVL2")
             g_target = "water body" if "water" in query.lower() else ("forest" if "forest" in query.lower() else "vegetation / parcel")
-            g_res = internvl_tool.grounding(p1, g_target)
+            g_res = internvl_tool.grounding(p1, g_target, api_key=key_clean)
             boxes = g_res["boxes"]
             draw = ImageDraw.Draw(annotated_image)
             w, h = annotated_image.size
@@ -477,10 +500,10 @@ def run_agentic_orchestrator(
             })
 
         # Step 4: Captioning & High-level Semantic VQA with PaliGemma
-        plan_steps.append("4. **Semantic Synthesis**: Invoke `PaliGemma-3B` with ResNet-18 sensor prior injection.")
+        plan_steps.append(f"4. **Semantic Synthesis**: Invoke `PaliGemma-3B` with {prior_model} sensor prior injection.")
         pali_tool = get_model("PaliGemma")
-        pali_res = pali_tool.vqa(p1, query, sensor_prior=sensor_prior)
-        caption_res = pali_tool.generate_caption(p1, sensor_prior=sensor_prior)
+        pali_res = pali_tool.vqa(p1, query, sensor_prior=sensor_prior, api_key=key_clean)
+        caption_res = pali_tool.generate_caption(p1, sensor_prior=sensor_prior, api_key=key_clean)
         tools_executed.append({
             "step": 4,
             "tool": "PaliGemma-3B VLM",
@@ -496,7 +519,7 @@ def run_agentic_orchestrator(
         synthesis_md = (
             f"### 📋 Executive Intelligence Report\n\n"
             f"**Query:** *\"{query}\"*\n\n"
-            f"#### 1. Multi-Sensor Land Cover Identification (ResNet-18)\n"
+            f"#### 1. Multi-Sensor Land Cover Identification ({prior_model})\n"
             f"> {sensor_prior}\n\n"
             f"#### 2. Scene Description & Visual Question Answering (PaliGemma-3B)\n"
             f"- **Observation:** {caption_res['caption']}\n"
@@ -544,20 +567,38 @@ def build_ui() -> gr.Blocks:
             """
         )
 
+        with gr.Accordion("🔑 Live Vision-Language API Setup (Optional: Free 72B / Flash Inference)", open=False):
+            gr.Markdown(
+                "💡 **Connect to Live Free VLMs:** Paste your free **OpenRouter API key** (`sk-or-...`) or **Google AI Studio Gemini API key** (`AIza...`) "
+                "to enable real-time 72B parameter VQA, Grounding, and Captioning. Leave blank to run in fast local simulation mode."
+            )
+            api_key_input = gr.Textbox(
+                label="Free API Key (OpenRouter or Google Gemini)",
+                placeholder="sk-or-... or AIza... (optional)",
+                type="password",
+            )
+
         with gr.Tabs():
 
             # -------------------------------------------------------------------
-            # TAB 1: ResNet-18
+            # TAB 1: Optical-SAR Land Cover Specialists
             # -------------------------------------------------------------------
-            with gr.TabItem("📡 1. ResNet-18 (Optical-SAR Fusion)"):
+            with gr.TabItem("📡 1. Optical-SAR Land Cover Specialists"):
                 gr.Markdown(
                     "### 12-Channel Sentinel-1 (SAR) + Sentinel-2 (Optical) Land Cover Classification\n"
-                    "Upload Sentinel-2 (10m/20m) and Sentinel-1 (VV/VH) GeoTIFFs to generate frozen sensor priors for VLM prompt injection.\n\n"
-                    "💡 **Flexibility:** You can upload any single band or multiple bands (`_B02.tiff`, `_VV.tif`, etc.) from `reben-training-scripts/scripts/data`, "
-                    "or click **⚡ Auto-Load Bundled Optical + SAR Patch** to test immediately with zero uploads required."
+                    "Select an Optical-SAR classifier to generate frozen sensor priors for VLM prompt injection.\n\n"
+                    "💡 **Available Specialists:**\n"
+                    "- **ResNet-18**: Native Optical-SAR 12-channel convolutional prior generator.\n"
+                    "- **ViT-Base**: Vision Transformer (`vit_base_patch8_224`) capturing multi-head attention across patches.\n"
+                    "- **ResNet-50**: Deep convolutional optical model (`resnet50-s2-v0.2.0`)."
                 )
                 with gr.Row():
                     with gr.Column(scale=1):
+                        sar_model_choice = gr.Radio(
+                            choices=["ResNet-18", "ViT-Base", "ResNet-50"],
+                            value="ResNet-18",
+                            label="Select Specialist Model Architecture",
+                        )
                         s2_file = gr.File(
                             label="Sentinel-2 Optical GeoTIFF (.tif / .tiff / image)",
                             file_types=[".tif", ".tiff", ".png", ".jpg", ".jpeg"],
@@ -576,7 +617,7 @@ def build_ui() -> gr.Blocks:
                             label="Top-K Land Cover Classes",
                         )
                         with gr.Row():
-                            resnet_btn = gr.Button("🚀 Run ResNet-18 Prior Generator", variant="primary")
+                            resnet_btn = gr.Button("🚀 Run Classification Prior Generator", variant="primary")
                             load_sample_btn = gr.Button("⚡ Auto-Load Bundled Optical + SAR Patch", variant="secondary")
 
                     with gr.Column(scale=1):
@@ -586,12 +627,12 @@ def build_ui() -> gr.Blocks:
 
                 resnet_btn.click(
                     fn=predict_resnet18,
-                    inputs=[s2_file, s1_file, top_k_slider],
+                    inputs=[s2_file, s1_file, top_k_slider, sar_model_choice],
                     outputs=[resnet_text, resnet_plot, resnet_raw],
                 )
                 load_sample_btn.click(
-                    fn=lambda k: predict_resnet18(None, None, k),
-                    inputs=[top_k_slider],
+                    fn=lambda k, m: predict_resnet18(None, None, k, m),
+                    inputs=[top_k_slider, sar_model_choice],
                     outputs=[resnet_text, resnet_plot, resnet_raw],
                 )
 
@@ -609,7 +650,7 @@ def build_ui() -> gr.Blocks:
                             placeholder="e.g. caption, or answer en what is in this image?",
                         )
                         paligemma_prior = gr.Textbox(
-                            label="Optional Sensor Prior (from ResNet-18)",
+                            label="Optional Sensor Prior (from ResNet-18 / ViT-Base)",
                             placeholder="e.g. Broad-leaved forest (67%), Inland wetlands (37%)",
                         )
                         paligemma_btn = gr.Button("🚀 Generate Caption / Answer", variant="primary")
@@ -619,7 +660,7 @@ def build_ui() -> gr.Blocks:
 
                 paligemma_btn.click(
                     fn=predict_paligemma,
-                    inputs=[paligemma_img, paligemma_prefix, paligemma_prior],
+                    inputs=[paligemma_img, paligemma_prefix, paligemma_prior, api_key_input],
                     outputs=[paligemma_out],
                 )
 
@@ -649,7 +690,7 @@ def build_ui() -> gr.Blocks:
 
                 internvl_btn.click(
                     fn=predict_internvl2,
-                    inputs=[internvl_img, internvl_query, internvl_mode],
+                    inputs=[internvl_img, internvl_query, internvl_mode, api_key_input],
                     outputs=[internvl_text, internvl_annotated],
                 )
 
@@ -677,7 +718,7 @@ def build_ui() -> gr.Blocks:
 
                 qwen_btn.click(
                     fn=predict_qwen2vl,
-                    inputs=[qwen_pre, qwen_post, qwen_query, qwen_prior],
+                    inputs=[qwen_pre, qwen_post, qwen_query, qwen_prior, api_key_input],
                     outputs=[qwen_out],
                 )
 
@@ -713,7 +754,7 @@ def build_ui() -> gr.Blocks:
                 gr.Markdown(
                     "### Autonomous Multi-Model Agent Pipeline\n"
                     "The agent evaluates your query and satellite images, dynamically invokes and chains specialist tools "
-                    "(**ResNet-18** Optical-SAR prior -> **CDVQA** delta mask -> **Qwen2-VL** temporal reasoning -> "
+                    "(**Optical-SAR Specialist** -> **CDVQA** delta mask -> **Qwen2-VL** temporal reasoning -> "
                     "**InternVL2** visual grounding -> **PaliGemma** captioning & VQA synthesis), "
                     "and combines the results into an executive intelligence report."
                 )
@@ -721,6 +762,11 @@ def build_ui() -> gr.Blocks:
                     with gr.Column(scale=1):
                         agent_img1 = gr.Image(label="Primary Satellite Image (Time T0)", type="filepath")
                         agent_img2 = gr.Image(label="Optional Secondary Image (Time T1 for Change Detection)", type="filepath")
+                        agent_prior_choice = gr.Radio(
+                            choices=["ResNet-18", "ViT-Base"],
+                            value="ResNet-18",
+                            label="Select Land Cover Prior Specialist",
+                        )
                         agent_query = gr.Textbox(
                             label="User Query / Mission Objective",
                             value="Identify the land cover types, describe the scene, locate prominent vegetation, and detect any temporal changes.",
@@ -736,7 +782,7 @@ def build_ui() -> gr.Blocks:
 
                 agent_btn.click(
                     fn=run_agentic_orchestrator,
-                    inputs=[agent_img1, agent_img2, agent_query],
+                    inputs=[agent_img1, agent_img2, agent_query, agent_prior_choice, api_key_input],
                     outputs=[agent_report, agent_plan, agent_viz, agent_trace],
                 )
 

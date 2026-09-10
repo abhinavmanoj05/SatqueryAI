@@ -109,12 +109,13 @@ class PaliGemmaTool:
         image: Union[str, Path, Image.Image],
         prefix: str = "caption",
         sensor_prior: Optional[str] = None,
-        max_new_tokens: int = 100,
-        temperature: float = 0.7,
+        max_new_tokens: int = 64,
+        temperature: float = 0.2,
         do_sample: bool = False,
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Generate a caption for a satellite image.
+        Generate caption for a satellite image with optional sensor prior prompt injection.
 
         Args:
             image: Image file path or PIL Image.
@@ -123,6 +124,7 @@ class PaliGemmaTool:
             max_new_tokens: Maximum tokens to generate.
             temperature: Sampling temperature if do_sample=True.
             do_sample: Whether to use nucleus/temperature sampling.
+            api_key: Optional OpenRouter or Gemini API key for live VLM inference.
 
         Returns:
             Dict containing generated caption, raw response, and execution metadata.
@@ -160,32 +162,52 @@ class PaliGemmaTool:
             ).strip()
             model_info = self.model_name
         else:
-            # SatQuery Remote Sensing Prior & Vision Reasoning Engine
-            import numpy as np
-            img_arr = np.array(pil_image)
-            mean_r, mean_g, mean_b = img_arr.mean(axis=(0, 1))[:3]
-            
-            if sensor_prior:
-                decoded_caption = (
-                    f"Multispectral satellite observation revealing: {sensor_prior.lower()}. "
-                    "The scene displays coherent land cover partitions, agricultural parcels, and vegetated canopy."
-                )
-            elif mean_g > mean_r and mean_g > mean_b:
-                decoded_caption = (
-                    "High-resolution remote sensing image showing extensive green forest canopy, "
-                    "transitional woodland shrubs, and interspersed agricultural fields."
-                )
-            elif mean_b > mean_r and mean_b > 90:
-                decoded_caption = (
-                    "Satellite scene capturing riparian corridors, wetlands, and aquatic surface features "
-                    "bordered by surrounding natural vegetation."
-                )
-            else:
-                decoded_caption = (
-                    "Earth observation satellite patch showcasing mixed terrain, parcel boundaries, "
-                    "and heterogeneous land use classification."
-                )
-            model_info = f"{self.model_name} (SatQuery Remote Sensing Prior Engine)"
+            # Check if live VLM API key is available
+            live_api_called = False
+            try:
+                try:
+                    from tools.vlm_api_tool import call_live_vlm, get_api_key
+                except ImportError:
+                    from vlm_api_tool import call_live_vlm, get_api_key
+                k, _ = get_api_key(api_key)
+                if k:
+                    vlm_prompt = (
+                        f"Describe this satellite remote sensing image. Provide a detailed, concise technical scene description. Prior context: {sensor_prior}"
+                        if sensor_prior
+                        else f"Describe this satellite remote sensing image with technical clarity. Task: {prefix}"
+                    )
+                    decoded_caption, live_model, api_elapsed = call_live_vlm(vlm_prompt, [pil_image], api_key=k)
+                    model_info = f"{live_model} (Live API)"
+                    live_api_called = True
+            except Exception as exc:
+                warnings.warn(f"Live VLM call failed ({exc}), falling back to heuristic prior engine.")
+
+            if not live_api_called:
+                import numpy as np
+                img_arr = np.array(pil_image)
+                mean_r, mean_g, mean_b = img_arr.mean(axis=(0, 1))[:3]
+                
+                if sensor_prior:
+                    decoded_caption = (
+                        f"Multispectral satellite observation revealing: {sensor_prior.lower()}. "
+                        "The scene displays coherent land cover partitions, agricultural parcels, and vegetated canopy."
+                    )
+                elif mean_g > mean_r and mean_g > mean_b:
+                    decoded_caption = (
+                        "High-resolution remote sensing image showing extensive green forest canopy, "
+                        "transitional woodland shrubs, and interspersed agricultural fields."
+                    )
+                elif mean_b > mean_r and mean_b > 90:
+                    decoded_caption = (
+                        "Satellite scene capturing riparian corridors, wetlands, and aquatic surface features "
+                        "bordered by surrounding natural vegetation."
+                    )
+                else:
+                    decoded_caption = (
+                        "Earth observation satellite patch showcasing mixed terrain, parcel boundaries, "
+                        "and heterogeneous land use classification."
+                    )
+                model_info = f"{self.model_name} (SatQuery Remote Sensing Prior Engine)"
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
@@ -205,11 +227,18 @@ class PaliGemmaTool:
         question: str,
         sensor_prior: Optional[str] = None,
         max_new_tokens: int = 100,
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Answer a visual question regarding a satellite image.
         """
-        if self.is_live and self.model is not None and self.processor is not None:
+        try:
+            from tools.vlm_api_tool import get_api_key
+        except ImportError:
+            from vlm_api_tool import get_api_key
+        k, _ = get_api_key(api_key)
+
+        if k or (self.is_live and self.model is not None and self.processor is not None):
             if sensor_prior:
                 vqa_prompt = f"answer en (prior: {sensor_prior}) {question}"
             else:
@@ -218,9 +247,10 @@ class PaliGemmaTool:
             res = self.generate_caption(
                 image=image,
                 prefix=vqa_prompt,
-                sensor_prior=None,
+                sensor_prior=sensor_prior,
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
+                api_key=k,
             )
             return {
                 "answer": res["caption"],

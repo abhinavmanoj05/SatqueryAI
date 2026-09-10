@@ -153,6 +153,7 @@ class Qwen2VLTool:
         question: str,
         sensor_prior: Optional[str] = None,
         max_new_tokens: int = 128,
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run bi-temporal change analysis VQA across pre- and post-event images."""
         start_time = time.perf_counter()
@@ -201,19 +202,42 @@ class Qwen2VLTool:
             )[0].strip()
             model_info = self.model_name
         else:
-            # Bi-temporal change analysis using pixel differencing
-            import numpy as np
-            a1 = np.array(img1.resize((256, 256))).astype(float)
-            a2 = np.array(img2.resize((256, 256))).astype(float)
-            diff = np.abs(a1 - a2).mean() / 255.0
+            live_api_called = False
+            try:
+                try:
+                    from tools.vlm_api_tool import call_live_vlm, get_api_key
+                except ImportError:
+                    from vlm_api_tool import call_live_vlm, get_api_key
+                k, _ = get_api_key(api_key)
+                if k:
+                    vlm_prompt = (
+                        f"Analyze these two satellite remote sensing images:\n"
+                        f"- Image 1: Pre-event (Time T0)\n"
+                        f"- Image 2: Post-event (Time T1)\n"
+                        f"Multi-spectral prior context: {sensor_prior}\n\n"
+                        f"Question: {question}\n"
+                        f"Describe any spatial, environmental, or structural changes observed between the two time steps."
+                    )
+                    answer, live_model, _ = call_live_vlm(vlm_prompt, [img1, img2], api_key=k)
+                    model_info = f"{live_model} (Live API)"
+                    live_api_called = True
+            except Exception as exc:
+                warnings.warn(f"Live VLM bi-temporal call failed ({exc}), falling back to heuristic engine.")
 
-            prior_clause = f" Jointly considering prior sensor context: {sensor_prior}." if sensor_prior else ""
-            if diff < 0.04:
-                answer = (
-                    "Bi-temporal inspection between Time T0 and Time T1 confirms high spatial stability "
-                    "with no substantial land-cover transformation or new structural developments. "
-                    "Minor radiometric variances are consistent with seasonal or illumination changes." + prior_clause
-                )
+            if not live_api_called:
+                # Bi-temporal change analysis using pixel differencing
+                import numpy as np
+                a1 = np.array(img1.resize((256, 256))).astype(float)
+                a2 = np.array(img2.resize((256, 256))).astype(float)
+                diff = np.abs(a1 - a2).mean() / 255.0
+
+                prior_clause = f" Jointly considering prior sensor context: {sensor_prior}." if sensor_prior else ""
+                if diff < 0.04:
+                    answer = (
+                        "Bi-temporal inspection between Time T0 and Time T1 confirms high spatial stability "
+                        "with no substantial land-cover transformation or new structural developments. "
+                        "Minor radiometric variances are consistent with seasonal or illumination changes." + prior_clause
+                    )
             elif diff < 0.15:
                 answer = (
                     f"Moderate localized changes observed between Date 1 and Date 2 (delta ~{diff*100:.1f}%). "
