@@ -118,6 +118,7 @@ class ExecutionTrace(TypedDict, total=False):
     duration_ms: float
     thinking: Optional[str]
     confidence_label: Optional[str]
+    allocation_trace: Optional[Dict[str, Any]]
 
 
 class SatQueryState(TypedDict, total=False):
@@ -137,12 +138,14 @@ class SatQueryState(TypedDict, total=False):
     user_query: str
     uploaded_files: List[UploadedFile]
     api_key: Optional[str]
+    preferred_model: Optional[str]
 
     # Parsed intent (validated against IntentSchema, stored as plain dict
     # for JSON-serializability / checkpointing)
     intent: Optional[Dict[str, Any]]
     thinking: Optional[str]
     conversational_answer: Optional[str]
+    allocation_trace: Optional[Dict[str, Any]]
 
     # Validation
     validation_result: Optional[ValidationResult]

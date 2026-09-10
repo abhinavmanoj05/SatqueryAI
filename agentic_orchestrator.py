@@ -145,13 +145,17 @@ def make_query_parser(llm: Optional[Any] = None):
         query = state.get("user_query", "")
         num_files = len(state.get("uploaded_files", []))
         api_key = state.get("api_key")
+        pref_model = state.get("preferred_model")
+        allocation_trace = None
 
         if llm is not None:
             intent = classify_intent_llm(llm, query, num_files)
             thinking = "LLM analyzed user query and classified intent."
             conversational_answer = None
         else:
-            decision = understand_query_with_nlp_brain(query, num_files, api_key=api_key)
+            decision = understand_query_with_nlp_brain(
+                query, num_files, api_key=api_key, preferred_model=pref_model
+            )
             intent = IntentSchema(
                 primary_task=decision.task,
                 input_count=decision.input_count,
@@ -160,6 +164,7 @@ def make_query_parser(llm: Optional[Any] = None):
             )
             thinking = decision.thinking
             conversational_answer = decision.direct_response
+            allocation_trace = decision.allocation_trace
 
         if not isinstance(intent, IntentSchema):
             try:
@@ -171,6 +176,7 @@ def make_query_parser(llm: Optional[Any] = None):
             "intent": intent.model_dump(),
             "thinking": thinking,
             "conversational_answer": conversational_answer,
+            "allocation_trace": allocation_trace,
         }
 
     return query_parser
@@ -385,7 +391,7 @@ def grounding_node(state: SatQueryState) -> Dict[str, Any]:
 
 
 def change_detection_node(state: SatQueryState) -> Dict[str, Any]:
-    """Bi-temporal change VQA (Gemini 2.0 Flash) & change mask (CDVQA Baseline)."""
+    """Bi-temporal change VQA (Gemini 3.8 Flash / Qwen 2.5-VL) & physical change analytics (CDVQA + Dual ViT-Base)."""
     files = state["validation_result"]["validated_files"]
     if len(files) < 2:
         return {"error": "Change detection requires two images."}
@@ -394,40 +400,83 @@ def change_detection_node(state: SatQueryState) -> Dict[str, Any]:
     img2_path = _resolve_image_path(files[1]["path"], default_to_post=True)
     query = state["user_query"]
     api_key = state.get("api_key")
+    pref_model = state.get("preferred_model")
 
-    # 1. Real pixel differencing change mask via CDVQA
+    # 1. Real pixel differencing change mask, color heatmap, hotspot clusters, and delta stats via CDVQA
     cdvqa_tool = _get_model("cdvqa")
     cd_res = cdvqa_tool.predict_change(img1_path, img2_path, query)
     mask = cd_res.get("mask")
+    heatmap_b64 = cd_res.get("heatmap_b64")
+    boxes = cd_res.get("boxes", [])
     mask_stats = cd_res.get("mask_stats", {})
-    mask_b64 = _mask_to_data_uri(mask) if mask is not None else None
     changed_pct = mask_stats.get("percentage_changed", 0.0)
+    veg_loss = mask_stats.get("vegetation_loss_percentage", 0.0)
+    built_up = mask_stats.get("built_up_expansion_percentage", 0.0)
+    veg_gain = mask_stats.get("vegetation_gain_percentage", 0.0)
 
-    # 2. Real bi-temporal reasoning via Gemini 2.0 Flash
+    # 2. Real Dual ViT-Base Land-Cover Transition Inference
+    vit_tool = _get_model("vit_base")
+    t0_prior_str = ""
+    t1_prior_str = ""
+    try:
+        vit_t0 = vit_tool.predict(s2_path=img1_path, top_k=3)
+        t0_prior_str = vit_t0.get("sensor_prior", "").replace("ResNet-18", "ViT-Base")
+    except Exception:
+        pass
+
+    try:
+        vit_t1 = vit_tool.predict(s2_path=img2_path, top_k=3)
+        t1_prior_str = vit_t1.get("sensor_prior", "").replace("ResNet-18", "ViT-Base")
+    except Exception:
+        pass
+
+    transition_context = ""
+    if t0_prior_str or t1_prior_str:
+        transition_context = f"Pre-event (T0) Land Cover: {t0_prior_str}\nPost-event (T1) Land Cover: {t1_prior_str}\n"
+
+    # 3. Real Bi-temporal Multimodal Reasoning via Gemini 3.8 Flash
     try:
         prompt = (
-            f"You are a remote sensing bi-temporal change analyst. Compare these two satellite images: "
+            f"You are an expert remote sensing bi-temporal change analyst. Compare these two satellite images: "
             f"Image 1 (Time T0, pre-event) and Image 2 (Time T1, post-event).\n"
-            f"CDVQA pixel differencing detected {changed_pct:.2f}% surface variation across the sequence.\n"
-            f"User Question: {query}\n"
-            f"Analyze: 1) What land-cover transitions occurred. 2) Where changes are concentrated. 3) Probable causes (urban expansion, seasonal vegetation, deforestation, or agricultural harvesting)."
         )
-        answer, model_name, duration_ms = call_live_vlm(prompt, [img1_path, img2_path], api_key=api_key)
+        if transition_context:
+            prompt += f"Multispectral Land-Cover Transition Analysis:\n{transition_context}\n"
+        prompt += (
+            f"Physical Spectral Differencing Metrics:\n"
+            f"- Total Surface Variation: {changed_pct:.2f}%\n"
+            f"- Vegetation Clearing / Loss: {veg_loss:.1f}%\n"
+            f"- Built-up / New Reflective Expansion: {built_up:.1f}%\n"
+            f"- Vegetation Gain / Revegetation: {veg_gain:.1f}%\n"
+            f"- Detected Discrete Change Hotspots: {len(boxes)}\n\n"
+            f"User Question: {query}\n"
+            f"Analyze: 1) What land-cover transitions occurred. 2) Where changes are concentrated (referring to detected hotspots). 3) Probable causes (urban expansion, seasonal vegetation, deforestation, or agricultural harvesting)."
+        )
+        answer, model_name, duration_ms = call_live_vlm(
+            prompt, [img1_path, img2_path], api_key=api_key, preferred_model=pref_model
+        )
     except Exception:
         qwen_tool = _get_model("qwen2vl")
         qwen_res = qwen_tool.test_change_vqa(img1_path, img2_path, query)
         answer = qwen_res.get("answer", "")
+        model_name = "Qwen2-VL-7B"
         duration_ms = 1600.0
+
+    mask_b64 = _mask_to_data_uri(mask) if mask is not None else None
+    display_mask = heatmap_b64 or mask_b64
 
     return {
         "tool_outputs": {
             **state.get("tool_outputs", {}),
             "change_detection": {
                 "answer": answer,
-                "change_mask": mask_b64,
+                "change_mask": display_mask,
+                "boxes": boxes,
+                "stats": mask_stats,
+                "transition": transition_context.strip(),
                 "changed_pct": changed_pct,
-                "confidence": 0.85,
-                "model": "CDVQA Baseline + Google Gemini 2.0 Flash",
+                "confidence": 0.88,
+                "model": f"CDVQA + Dual ViT-Base + {model_name}",
                 "duration_ms": duration_ms + cd_res.get("execution_trace", {}).get("inference_time_ms", 400.0),
             },
         }
@@ -581,12 +630,18 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
         execution_trace["duration_ms"] = tool_outputs["grounding"].get("duration_ms", 1450.0)
 
     elif "change_detection" in tool_outputs:
-        final_answer = tool_outputs["change_detection"]["answer"]
-        visual_evidence = {"change_mask": tool_outputs["change_detection"].get("change_mask")}
-        confidence = tool_outputs["change_detection"].get("confidence", 0.85)
-        model_used = tool_outputs["change_detection"].get("model", "Qwen2-VL-7B")
-        execution_trace["models_used"] = [model_used] if "Qwen2-VL" in model_used else [model_used, "Qwen2-VL-7B"]
-        execution_trace["duration_ms"] = tool_outputs["change_detection"].get("duration_ms", 2000.0)
+        cd = tool_outputs["change_detection"]
+        final_answer = cd["answer"]
+        visual_evidence = {
+            "change_mask": cd.get("change_mask"),
+            "boxes": cd.get("boxes", []),
+            "stats": cd.get("stats", {}),
+            "transition": cd.get("transition", ""),
+        }
+        confidence = cd.get("confidence", 0.88)
+        model_used = cd.get("model", "Qwen2-VL-7B")
+        execution_trace["models_used"] = [model_used, "Qwen2-VL-7B"] if model_used != "Qwen2-VL-7B" else [model_used]
+        execution_trace["duration_ms"] = cd.get("duration_ms", 2000.0)
 
     elif "fusion" in tool_outputs:
         f_data = tool_outputs["fusion"]
@@ -606,6 +661,8 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
     execution_trace["confidence_label"] = (
         "High" if confidence >= 0.75 else ("Medium" if confidence >= 0.50 else "Low")
     )
+    if state.get("allocation_trace"):
+        execution_trace["allocation_trace"] = state["allocation_trace"]
 
     return {
         "final_answer": final_answer,

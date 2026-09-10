@@ -15,13 +15,40 @@ export interface TopKClass {
   probability: number
 }
 
+export interface ChangeStats {
+  total_changed_pixels?: number
+  percentage_changed?: number
+  vegetation_loss_percentage?: number
+  built_up_expansion_percentage?: number
+  vegetation_gain_percentage?: number
+  active_hotspots?: number
+}
+
 export interface VisualEvidence {
-  /** Array of detected/grounded regions */
+  /** Array of detected/grounded regions or bi-temporal change hotspots */
   boxes?: BoundingBox[]
-  /** Base64-encoded PNG or a URL to a change mask overlay */
+  /** Base64-encoded PNG or a URL to a change mask overlay or RGBA heatmap */
   change_mask?: string
   /** Top-k land-cover class predictions */
   top_k?: TopKClass[]
+  /** Bi-temporal multi-channel quantitative metrics */
+  stats?: ChangeStats
+  /** Multispectral semantic land-cover transition prior */
+  transition?: string
+}
+
+export interface AllocationTrace {
+  selection_mode: string
+  router_brain: string
+  allocated_models: Record<string, string>
+  allocation_rationale: string
+  system_telemetry: {
+    ollama_status?: string
+    gemini_status?: string
+    physical_vision?: string
+    hardware_device?: string
+    [key: string]: string | undefined
+  }
 }
 
 export interface ExecutionTrace {
@@ -41,6 +68,8 @@ export interface ExecutionTrace {
   confidence_label?: 'High' | 'Medium' | 'Low'
   /** Cognitive thinking / rationale of the orchestrator */
   thinking?: string
+  /** Transparent 'Who Chose What and Why' allocation trace */
+  allocation_trace?: AllocationTrace
 }
 
 export interface OrchestratorResponse {

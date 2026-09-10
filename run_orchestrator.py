@@ -20,6 +20,7 @@ def run_satquery(
     uploaded_files: Optional[List[Dict[str, Any]]] = None,
     llm: Optional[Any] = None,
     api_key: Optional[str] = None,
+    preferred_model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute the SatQuery AI agentic orchestrator pipeline end-to-end.
 
@@ -29,6 +30,7 @@ def run_satquery(
             [{"path": "sample.png", "modality": "optical", "format": "png"}]
         llm: Optional LangChain chat model for intent classification.
         api_key: Optional live Gemini / OpenRouter API key for VLM models.
+        preferred_model: Optional model preference ("auto", "gemini-3.8-flash", "gemini-2.0-flash", "ollama", "vit_base").
 
     Returns:
         Structured dictionary matching SatQueryState and OrchestratorResponse.
@@ -44,6 +46,7 @@ def run_satquery(
         "user_query": user_query,
         "uploaded_files": uploaded_files,
         "api_key": api_key,
+        "preferred_model": preferred_model,
         "tool_outputs": {},
     }
 

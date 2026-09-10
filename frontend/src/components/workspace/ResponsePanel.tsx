@@ -1,5 +1,18 @@
 import { useState } from 'react'
-import { ShieldCheck, Crosshair, BarChart2, Layers, CheckCircle2, Brain, ChevronDown, ChevronUp } from 'lucide-react'
+import {
+  ShieldCheck,
+  Crosshair,
+  BarChart2,
+  Layers,
+  CheckCircle2,
+  Brain,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  Activity,
+  Server,
+  MapPin,
+} from 'lucide-react'
 import type { ChatMessage, OrchestratorResponse } from '@/types/orchestrator'
 
 interface ResponsePanelProps {
@@ -77,6 +90,7 @@ function AssistantResponseCard({
   timestamp: string
 }) {
   const [showThinking, setShowThinking] = useState(true)
+  const [showAllocation, setShowAllocation] = useState(true)
 
   if (!response) {
     return (
@@ -107,7 +121,9 @@ function AssistantResponseCard({
   const hasVisualEvidence = Boolean(
     (evidence.top_k && evidence.top_k.length > 0) ||
     (evidence.boxes && evidence.boxes.length > 0) ||
-    evidence.change_mask
+    evidence.change_mask ||
+    evidence.stats ||
+    evidence.transition
   )
 
   return (
@@ -135,6 +151,74 @@ function AssistantResponseCard({
           <span className="text-[11px] text-navy-400 font-mono">{timestamp}</span>
         </div>
       </div>
+
+      {/* "Who Chose What and All" Omni-Route Model Allocation Banner */}
+      {execution_trace?.allocation_trace && (
+        <div className="bg-gradient-to-r from-navy-900 to-navy-800 text-white rounded-xl p-4 shadow-sm border border-navy-700 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1 rounded bg-saffron/20 text-saffron">
+                <Sparkles className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-xs font-bold uppercase tracking-wider text-saffron">
+                Omni-Route Model Allocation
+              </span>
+              <span className="text-navy-400 text-xs">|</span>
+              <span className="text-xs text-navy-200 font-semibold">
+                {execution_trace.allocation_trace.selection_mode}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAllocation(!showAllocation)}
+              className="text-navy-300 hover:text-white transition-colors"
+            >
+              {showAllocation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {showAllocation && (
+            <div className="space-y-3 pt-2 border-t border-navy-700/60 text-xs">
+              {/* Who Chose What Summary */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="bg-navy-950/60 p-2.5 rounded border border-navy-800">
+                  <span className="text-navy-400 block font-sans mb-0.5">Decision Router:</span>
+                  <span className="font-semibold text-emerald-400 font-mono">
+                    {execution_trace.allocation_trace.router_brain}
+                  </span>
+                </div>
+                <div className="bg-navy-950/60 p-2.5 rounded border border-navy-800">
+                  <span className="text-navy-400 block font-sans mb-0.5">Specialist Pipeline:</span>
+                  <span className="font-semibold text-sky-300 font-mono">
+                    {Object.values(execution_trace.allocation_trace.allocated_models).join(' + ')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Allocation Rationale */}
+              <div className="bg-navy-950/40 p-2.5 rounded border border-navy-800/80 text-[11px] text-navy-200 leading-relaxed font-sans">
+                <span className="font-bold text-saffron block mb-0.5">Allocation Rationale:</span>
+                {execution_trace.allocation_trace.allocation_rationale}
+              </div>
+
+              {/* System Telemetry Chips */}
+              {execution_trace.allocation_trace.system_telemetry && (
+                <div className="flex items-center gap-2 flex-wrap text-[10px] font-mono text-navy-300 pt-1">
+                  <span className="bg-navy-800 px-2 py-0.5 rounded border border-navy-700">
+                    Ollama: {execution_trace.allocation_trace.system_telemetry.ollama_status}
+                  </span>
+                  <span className="bg-navy-800 px-2 py-0.5 rounded border border-navy-700">
+                    Gemini: {execution_trace.allocation_trace.system_telemetry.gemini_status}
+                  </span>
+                  <span className="bg-navy-800 px-2 py-0.5 rounded border border-navy-700">
+                    Target: {execution_trace.allocation_trace.system_telemetry.physical_vision}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Orchestrator Cognitive Thinking Rationale */}
       {execution_trace?.thinking && (
@@ -233,8 +317,104 @@ function AssistantResponseCard({
             </div>
           )}
 
-          {/* Change Mask Evidence */}
-          {evidence.change_mask && (
+          {/* Bi-Temporal Quantitative Analytics & Land-Cover Transition */}
+          {(evidence.stats || evidence.transition) && (
+            <div className="space-y-3 pt-3 border-t border-navy-100">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-navy uppercase tracking-wider">
+                  <Activity className="w-3.5 h-3.5 text-saffron" />
+                  <span>Bi-Temporal Surface Analytics & Transition</span>
+                </div>
+                {evidence.stats?.percentage_changed !== undefined && (
+                  <span className="text-xs font-mono font-bold bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full border border-amber-200">
+                    Δ {evidence.stats.percentage_changed}% Total Scene Variation
+                  </span>
+                )}
+              </div>
+
+              {/* Land-Cover Transition Pill */}
+              {evidence.transition && (
+                <div className="p-3 bg-sky-50/80 rounded-lg border border-sky-100 text-xs font-sans text-navy-800 space-y-1">
+                  <span className="font-bold text-navy-900 block text-xs">
+                    Dual ViT-Base Land-Cover Transition Matrix:
+                  </span>
+                  <div className="whitespace-pre-line text-[11px] leading-relaxed font-mono bg-white p-2.5 rounded border border-sky-200/80 text-navy-700">
+                    {evidence.transition}
+                  </div>
+                </div>
+              )}
+
+              {/* Quantitative Metrics Grid */}
+              {evidence.stats && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="p-2.5 bg-red-50/80 rounded-lg border border-red-200 text-center">
+                    <span className="text-[10px] text-red-600 block uppercase font-semibold">Vegetation Clearing</span>
+                    <span className="text-base font-extrabold text-red-800 font-mono">
+                      -{evidence.stats.vegetation_loss_percentage ?? 0}%
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-amber-50/80 rounded-lg border border-amber-200 text-center">
+                    <span className="text-[10px] text-amber-700 block uppercase font-semibold">Built-Up Expansion</span>
+                    <span className="text-base font-extrabold text-amber-900 font-mono">
+                      +{evidence.stats.built_up_expansion_percentage ?? 0}%
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-emerald-50/80 rounded-lg border border-emerald-200 text-center">
+                    <span className="text-[10px] text-emerald-700 block uppercase font-semibold">Revegetation</span>
+                    <span className="text-base font-extrabold text-emerald-900 font-mono">
+                      +{evidence.stats.vegetation_gain_percentage ?? 0}%
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-navy-50/80 rounded-lg border border-navy-200 text-center">
+                    <span className="text-[10px] text-navy-600 block uppercase font-semibold">Active Hotspots</span>
+                    <span className="text-base font-extrabold text-navy-900 font-mono">
+                      {evidence.stats.active_hotspots ?? evidence.boxes?.length ?? 0}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Change Heatmap with Color Legend */}
+              {evidence.change_mask && (
+                <div className="space-y-2 pt-1">
+                  <span className="text-xs font-semibold text-navy-700 block">
+                    Spectral Delta Heatmap & Hotspot Overlay:
+                  </span>
+                  <div className="flex flex-col sm:flex-row items-start gap-4 p-3 bg-white rounded-lg border border-navy-100">
+                    <div className="p-1.5 bg-navy-950 rounded-lg border border-navy-800 shadow-inner">
+                      <img
+                        src={evidence.change_mask}
+                        alt="Bi-Temporal Change Heatmap"
+                        className="max-h-44 rounded object-contain"
+                      />
+                    </div>
+                    <div className="space-y-2 text-[11px] text-navy-600">
+                      <span className="font-bold text-navy-800 block text-xs">Heatmap Classification Legend:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-red-600 inline-block flex-shrink-0" />
+                        <span>🟥 Red: Vegetation clearing / loss (ΔVeg &lt; -8%)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-yellow-400 inline-block flex-shrink-0" />
+                        <span>🟨 Yellow: Built-up / new reflective structures (ΔBright &gt; +10%)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block flex-shrink-0" />
+                        <span>🟩 Green: Revegetation / agricultural growth (ΔVeg &gt; +8%)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-orange-500 inline-block flex-shrink-0" />
+                        <span>🟧 Orange: Soil & surface matrix variation</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Simple Change Mask Evidence fallback if stats not available */}
+          {!evidence.stats && evidence.change_mask && (
             <div className="space-y-2 pt-2 border-t border-navy-100">
               <span className="text-xs font-semibold text-navy-700 block">
                 Temporal Change Delta Mask

@@ -208,22 +208,50 @@ const MOCK_RESPONSES: Record<OrchestratorResponse['execution_trace']['task'], ()
 // Public API — runSatQuery
 // ---------------------------------------------------------------------------
 
+export interface SystemModelStatus {
+  ollama: {
+    online: boolean
+    models: Array<{
+      name: string
+      size?: number
+      parameter_size?: string
+      family?: string
+      quantization?: string
+    }>
+    host?: string
+  }
+  gemini: {
+    online: boolean
+    models: string[]
+    primary: string
+  }
+  physical_vision: {
+    vit_base: string
+    cdvqa: string
+    backend: string
+  }
+}
+
+export async function getAvailableModels(): Promise<SystemModelStatus | null> {
+  try {
+    const res = await fetch('/api/models')
+    if (res.ok) {
+      return (await res.json()) as SystemModelStatus
+    }
+  } catch (err) {
+    console.warn('Failed to fetch /api/models:', err)
+  }
+  return null
+}
+
 /**
  * Run a SatQuery AI analysis request against the orchestrator.
- *
- * Currently returns a realistic mock response keyed to the detected intent.
- * To wire up the real backend, replace the body below with a single fetch():
- *
- *   const form = new FormData()
- *   form.append('query', query)
- *   files.forEach(f => form.append('files', f))
- *   const res = await fetch('/api/analyze', { method: 'POST', body: form })
- *   return res.json() as Promise<OrchestratorResponse>
  */
 export async function runSatQuery(
   query: string,
   files: File[],
   apiKey?: string,
+  preferredModel?: string,
 ): Promise<OrchestratorResponse> {
   // 1. Try real LangGraph Agentic Orchestrator backend
   try {
@@ -231,6 +259,9 @@ export async function runSatQuery(
     formData.append('query', query)
     if (apiKey) {
       formData.append('api_key', apiKey)
+    }
+    if (preferredModel) {
+      formData.append('preferred_model', preferredModel)
     }
     files.forEach((f) => formData.append('files', f))
 

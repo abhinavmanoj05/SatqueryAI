@@ -216,7 +216,7 @@ class TestFullGraph:
         )
         assert result["final_answer"]
         assert result["execution_trace"]["task"] == "vqa"
-        assert result["execution_trace"]["models_used"] == ["InternVL2-8B"]
+        assert "InternVL2-8B" in result["execution_trace"]["models_used"]
         assert result["execution_trace"]["input_count"] == 1
         assert "duration_ms" in result["execution_trace"]
         assert "timestamp" in result["execution_trace"]

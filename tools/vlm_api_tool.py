@@ -37,20 +37,21 @@ load_dotenv()
 
 def get_api_key(provided_key: Optional[str] = None) -> Tuple[Optional[str], str]:
     """Retrieve API key and identify provider ('gemini' or 'openrouter')."""
-    key = (
-        provided_key
-        or os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("OPENROUTER_API_KEY")
-    )
-    if not key:
-        return None, "none"
-    key = key.strip()
-    if key.startswith("AIza"):
-        return key, "gemini"
-    if key.startswith("sk-or-") or len(key) > 40:
-        return key, "openrouter"
-    # Default: if user provided a key, assume gemini unless sk-or- prefix
-    return key, "gemini"
+    if provided_key:
+        k = provided_key.strip()
+        if k.startswith("sk-or-"):
+            return k, "openrouter"
+        return k, "gemini"
+
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key and gemini_key.strip():
+        return gemini_key.strip(), "gemini"
+
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key and openrouter_key.strip():
+        return openrouter_key.strip(), "openrouter"
+
+    return None, "none"
 
 
 def encode_image_to_base64(image_input: Union[str, Path, Image.Image]) -> str:
@@ -124,8 +125,12 @@ def call_live_vlm(
         candidate_models = [
             preferred_model,
             os.environ.get("GEMINI_MODEL"),
+            "gemini-3.8-flash",
+            "gemini-3-flash-preview",
+            "gemini-flash-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-3.5-flash",
             "gemini-2.0-flash",
-            "gemini-1.5-flash",
         ]
         # Deduplicate while preserving order
         models_to_try = []
@@ -154,17 +159,22 @@ def call_live_vlm(
 
         for model_name in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
-            resp = requests.post(url, headers=headers, json=payload, timeout=60)
-            if resp.status_code == 200:
-                data = resp.json()
-                try:
-                    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    model_display = f"Google Gemini ({model_name})"
-                    break
-                except (KeyError, IndexError) as e:
-                    last_error = f"Unexpected response structure from Gemini ({model_name}): {data}"
-            else:
-                last_error = f"Google Gemini API error ({resp.status_code}) on {model_name}: {resp.text}"
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=8)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    try:
+                        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        model_display = f"Google Gemini ({model_name})"
+                        break
+                    except (KeyError, IndexError):
+                        last_error = f"Unexpected response structure from Gemini ({model_name})"
+                else:
+                    last_error = f"Google Gemini API error ({resp.status_code}) on {model_name}"
+            except Exception as e:
+                last_error = f"Connection timeout or error on Gemini ({model_name}): {e}"
+                continue
+
 
         if text is None:
             raise RuntimeError(last_error or "Failed to obtain response from Gemini API.")

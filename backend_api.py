@@ -28,6 +28,7 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from nlp_brain import get_system_model_status
 from run_orchestrator import run_satquery
 
 app = FastAPI(
@@ -58,13 +59,21 @@ async def health_check():
         "service": "SatQuery AI Agentic Orchestrator",
         "models": [
             "ViT-Base (BIFOLD-BigEarthNetv2-0/vit_base_patch8_224-all-v0.2.0)",
-            "Google Gemini 2.0 Flash (Cloud VLM: VQA, Grounding, Change Analysis)",
-            "Qwen 2.5-VL 72B (OpenRouter High-Res Backup)",
-            "CDVQA Baseline (Pixel Change Mask Differencing)",
+            "Google Gemini 3.8 Flash (Primary Multi-Modal Remote Sensing VLM)",
+            "Google Gemini 2.0 Flash (Cloud VLM Backup)",
+            "Local Ollama (Real Daemon Integration on port 11434)",
+            "CDVQA Baseline (Pixel Difference & RGBA Color Heatmap Clustering)",
             "ResNet-18 (BIFOLD-BigEarthNetv2-0/resnet18-all-v0.2.0)",
             "InternVL2-8B & PaliGemma-3B (Local Offline Fallbacks)",
         ],
     }
+
+
+@app.get("/models")
+@app.get("/api/models")
+async def list_available_models():
+    """Live system model inspection endpoint querying Ollama daemon and Gemini availability."""
+    return get_system_model_status()
 
 
 @app.post("/analyze")
@@ -73,6 +82,7 @@ async def analyze(
     query: str = Form("Analyze the satellite image and describe findings."),
     files: Optional[List[UploadFile]] = File(None),
     api_key: Optional[str] = Form(None),
+    preferred_model: Optional[str] = Form("auto"),
 ):
     """
     Main analysis endpoint: routes query & images through the LangGraph orchestrator.
@@ -119,6 +129,7 @@ async def analyze(
             user_query=query,
             uploaded_files=saved_file_records,
             api_key=api_key,
+            preferred_model=preferred_model,
         )
 
         return JSONResponse(content=result)

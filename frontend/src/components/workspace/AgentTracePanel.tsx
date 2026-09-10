@@ -1,4 +1,4 @@
-import { Terminal, Activity, ChevronLeft, ChevronRight, CheckCircle2, Clock, Brain } from 'lucide-react'
+import { Terminal, Activity, ChevronLeft, ChevronRight, CheckCircle2, Clock, Brain, Sparkles, Server, Cpu } from 'lucide-react'
 import type { ExecutionTrace } from '@/types/orchestrator'
 
 interface AgentTracePanelProps {
@@ -50,6 +50,56 @@ export default function AgentTracePanel({ trace, isOpen, onToggle }: AgentTraceP
                   <span className="text-navy-400">Task:</span> <span className="font-bold text-saffron">{trace.task}</span>
                 </div>
               </div>
+
+              {/* Omni-Route Model Allocation Card: Who Chose What */}
+              {trace.allocation_trace && (
+                <div className="p-3 bg-navy-900 text-white rounded-lg border border-navy-700 space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-saffron uppercase tracking-wider">
+                    <Sparkles className="w-3.5 h-3.5 text-saffron" />
+                    <span>Who Chose What</span>
+                  </div>
+
+                  <div className="space-y-1 text-[11px]">
+                    <div className="flex justify-between text-navy-300">
+                      <span>Selection Mode:</span>
+                      <span className="font-semibold text-white truncate max-w-[130px]" title={trace.allocation_trace.selection_mode}>
+                        {trace.allocation_trace.selection_mode}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-navy-300">
+                      <span>Router Brain:</span>
+                      <span className="font-semibold text-emerald-400 truncate max-w-[130px]" title={trace.allocation_trace.router_brain}>
+                        {trace.allocation_trace.router_brain}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 pt-1.5 border-t border-navy-800">
+                    <span className="text-[10px] text-navy-400 uppercase tracking-wider block">Allocated Specialists:</span>
+                    {Object.entries(trace.allocation_trace.allocated_models).map(([role, modName]) => (
+                      <div key={role} className="bg-navy-950/80 p-1.5 rounded border border-navy-800 flex justify-between items-center text-[10px]">
+                        <span className="text-navy-400 truncate max-w-[90px]">{role}:</span>
+                        <span className="font-semibold text-sky-300 truncate max-w-[140px] text-right" title={modName}>
+                          {modName}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="text-[10px] text-navy-300 leading-relaxed font-sans bg-navy-950/60 p-2 rounded border border-navy-800">
+                    <span className="font-bold text-saffron block mb-0.5 font-mono">Rationale:</span>
+                    {trace.allocation_trace.allocation_rationale}
+                  </div>
+
+                  {trace.allocation_trace.system_telemetry && (
+                    <div className="space-y-1 pt-1 border-t border-navy-800 text-[10px] text-navy-400">
+                      <div className="truncate">Ollama: <span className="text-navy-300">{trace.allocation_trace.system_telemetry.ollama_status}</span></div>
+                      <div className="truncate">Gemini: <span className="text-navy-300">{trace.allocation_trace.system_telemetry.gemini_status}</span></div>
+                      <div className="truncate">Target: <span className="text-navy-300">{trace.allocation_trace.system_telemetry.physical_vision}</span></div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Cognitive Thinking & Rationale */}
               {trace.thinking && (

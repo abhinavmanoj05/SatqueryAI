@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Sidebar from './Sidebar'
 import UploadZone from './UploadZone'
 import ChatInput from './ChatInput'
 import ResponsePanel from './ResponsePanel'
 import AgentTracePanel from './AgentTracePanel'
-import { runSatQuery } from '@/api/satquery'
+import { runSatQuery, getAvailableModels, type SystemModelStatus } from '@/api/satquery'
+import { Cpu, Sparkles } from 'lucide-react'
 import type { UploadMode, UploadedFile, Session, ChatMessage, OrchestratorResponse } from '@/types/orchestrator'
 
 export default function Workspace() {
@@ -13,6 +14,16 @@ export default function Workspace() {
   const [uploadMode, setUploadMode] = useState<UploadMode>('single')
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [preferredModel, setPreferredModel] = useState<string>('auto')
+  const [systemModels, setSystemModels] = useState<SystemModelStatus | null>(null)
+
+  useEffect(() => {
+    getAvailableModels().then((data) => {
+      if (data) {
+        setSystemModels(data)
+      }
+    })
+  }, [])
 
   // Seed sessions
   const [sessions, setSessions] = useState<Session[]>([
@@ -86,7 +97,7 @@ export default function Workspace() {
 
     try {
       const files = uploadedFiles.map((f) => f.file)
-      const orchestratorResult = await runSatQuery(query, files)
+      const orchestratorResult = await runSatQuery(query, files, undefined, preferredModel)
 
       const assistantMsg: ChatMessage = {
         id: `msg-${Date.now()}-res`,
@@ -134,7 +145,7 @@ export default function Workspace() {
   return (
     <section id="workspace" className="min-h-screen bg-sky-base/40 pt-16 flex flex-col">
       {/* Workspace Subheader */}
-      <div className="bg-white border-b border-navy-100 px-6 py-2.5 flex items-center justify-between">
+      <div className="bg-white border-b border-navy-100 px-6 py-2.5 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <h2 className="text-xs font-semibold text-navy tracking-wide uppercase">
@@ -145,11 +156,35 @@ export default function Workspace() {
             {activeSession.title}
           </span>
         </div>
-        <div className="flex items-center gap-3 text-xs text-navy-500">
-          <span className="hidden sm:inline">Modality:</span>
-          <span className="font-mono text-[11px] bg-navy-50 px-2 py-0.5 rounded border border-navy-200 uppercase font-semibold text-navy-700">
-            {uploadMode}
-          </span>
+
+        {/* Dynamic Model Engine & Modality Selector */}
+        <div className="flex items-center gap-3 text-xs text-navy-600 flex-wrap">
+          <div className="flex items-center gap-1.5 bg-navy-50/80 px-2.5 py-1 rounded-md border border-navy-200">
+            <Sparkles className="w-3.5 h-3.5 text-saffron" />
+            <span className="text-[11px] font-semibold text-navy-700">Model Engine:</span>
+            <select
+              value={preferredModel}
+              onChange={(e) => setPreferredModel(e.target.value)}
+              className="font-mono text-[11px] bg-transparent text-navy-900 font-semibold focus:outline-none cursor-pointer"
+            >
+              <option value="auto">⚡ Auto (Omni-Route Dynamic)</option>
+              <option value="gemini-3.8-flash">✨ Google Gemini 3.8 Flash</option>
+              <option value="gemini-2.0-flash">🌐 Google Gemini 2.0 Flash</option>
+              {systemModels?.ollama.online && systemModels.ollama.models.map((m) => (
+                <option key={m.name} value={`ollama:${m.name}`}>
+                  🦙 Ollama: {m.name} {m.parameter_size ? `[${m.parameter_size}]` : ''}
+                </option>
+              ))}
+              <option value="vit_base">🔬 ViT-Base (BigEarthNet 12-Band S2)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="hidden sm:inline text-navy-400 font-medium">Modality:</span>
+            <span className="font-mono text-[11px] bg-navy-50 px-2 py-0.5 rounded border border-navy-200 uppercase font-semibold text-navy-700">
+              {uploadMode}
+            </span>
+          </div>
         </div>
       </div>
 
