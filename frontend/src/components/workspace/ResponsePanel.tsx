@@ -154,6 +154,7 @@ function AssistantResponseCard({
   const hasVisualEvidence = Boolean(
     (evidence.top_k && evidence.top_k.length > 0) ||
     (evidence.boxes && evidence.boxes.length > 0) ||
+    evidence.annotated_image ||
     evidence.change_mask ||
     evidence.stats ||
     evidence.transition
@@ -321,32 +322,61 @@ function AssistantResponseCard({
           )}
 
           {/* Bounding Box Visual Evidence */}
-          {evidence.boxes && evidence.boxes.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-navy-100">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-navy-700">
-                <Crosshair className="w-3.5 h-3.5 text-saffron" />
-                <span>Localized Bounding Boxes ({evidence.boxes.length} targets)</span>
+          {((evidence.boxes && evidence.boxes.length > 0) || evidence.annotated_image) && (
+            <div className="space-y-3 pt-2 border-t border-navy-100">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-navy-700">
+                  <Crosshair className="w-3.5 h-3.5 text-saffron" />
+                  <span>Localized Bounding Boxes ({evidence.boxes?.length || 1} targets)</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  HUD Target Overlay Active
+                </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {evidence.boxes.map((box, i) => (
-                  <div
-                    key={i}
-                    className="p-2.5 bg-white rounded-lg border border-navy-100 text-xs text-navy-700 flex flex-col gap-1"
-                  >
-                    <div className="flex justify-between font-medium">
-                      <span>{box.label || `Region ${i + 1}`}</span>
-                      {box.confidence && (
-                        <span className="text-[10px] text-emerald-600 font-mono">
-                          {Math.round(box.confidence * 100)}%
-                        </span>
-                      )}
+
+              {/* Highlighted Bounding Box Outline on Actual Satellite Image */}
+              {evidence.annotated_image && (
+                <div className="space-y-1.5">
+                  <div className="p-3 bg-navy-950 rounded-xl border border-navy-800 shadow-inner flex flex-col items-center justify-center">
+                    <img
+                      src={evidence.annotated_image}
+                      alt="Satellite image with highlighted bounding boxes"
+                      className="max-h-96 w-auto rounded-lg object-contain border border-navy-800 shadow-md"
+                    />
+                    <div className="flex items-center justify-between w-full pt-2 px-1 text-[10px] text-sky-200/80 font-mono">
+                      <span>🛰️ Target feature(s) outlined and highlighted with spectral HUD overlay</span>
+                      <span>Detection Active</span>
                     </div>
-                    <code className="text-[11px] font-mono text-navy-500 bg-navy-50 px-1.5 py-0.5 rounded">
-                      [{box.coords.join(', ')}]
-                    </code>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
+
+              {/* Coordinates List */}
+              {evidence.boxes && evidence.boxes.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {evidence.boxes.map((box, i) => (
+                    <div
+                      key={i}
+                      className="p-2.5 bg-white rounded-lg border border-navy-100 text-xs text-navy-700 flex flex-col gap-1 shadow-xs"
+                    >
+                      <div className="flex justify-between font-medium">
+                        <span className="font-semibold text-navy-900">{box.label || `Region ${i + 1}`}</span>
+                        {box.confidence && (
+                          <span className="text-[10px] text-emerald-600 font-mono font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            {Math.round(box.confidence * 100)}%
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-navy-400 font-mono">BBox [x1, y1, x2, y2]:</span>
+                        <code className="text-[11px] font-mono text-navy-700 bg-navy-50 px-1.5 py-0.5 rounded border border-navy-100">
+                          [{box.coords.join(', ')}]
+                        </code>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

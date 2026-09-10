@@ -110,6 +110,91 @@ def _mask_to_data_uri(mask_array: np.ndarray) -> str:
     return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
 
 
+def draw_grounding_boxes(
+    image_path: str,
+    boxes: List[Dict[str, Any]],
+) -> str:
+    """Draw high-visibility bounding box outlines, HUD corner brackets, and highlight overlay on the satellite image."""
+    if not boxes or not os.path.exists(image_path):
+        return ""
+    try:
+        from PIL import Image, ImageDraw
+        raw_img = Image.open(image_path)
+        try:
+            from tools.vlm_api_tool import normalize_raster_image
+        except ImportError:
+            from vlm_api_tool import normalize_raster_image
+        norm_img = normalize_raster_image(raw_img).convert("RGBA")
+        w, h = norm_img.size
+
+        overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        d_overlay = ImageDraw.Draw(overlay)
+        d_img = ImageDraw.Draw(norm_img)
+
+        palette = [
+            {"stroke": (249, 115, 22, 255), "fill": (249, 115, 22, 50), "badge": (234, 88, 12, 230)},  # Saffron
+            {"stroke": (16, 185, 129, 255), "fill": (16, 185, 129, 50), "badge": (5, 150, 105, 230)},  # Emerald
+            {"stroke": (59, 130, 246, 255), "fill": (59, 130, 246, 50), "badge": (37, 99, 235, 230)},  # Blue
+            {"stroke": (239, 68, 68, 255), "fill": (239, 68, 68, 50), "badge": (220, 38, 38, 230)},    # Red
+        ]
+
+        for i, b in enumerate(boxes):
+            coords = b.get("coords") or b.get("bbox") or []
+            if len(coords) != 4:
+                continue
+            raw_x1, raw_y1, raw_x2, raw_y2 = coords
+            pad = 4
+            x1 = max(pad, min(w - pad - 1, int(raw_x1)))
+            y1 = max(pad, min(h - pad - 1, int(raw_y1)))
+            x2 = max(pad + 1, min(w - pad, int(raw_x2)))
+            y2 = max(pad + 1, min(h - pad, int(raw_y2)))
+            if x2 - x1 < 4 or y2 - y1 < 4:
+                x1, y1, x2, y2 = pad, pad, w - pad, h - pad
+
+            style = palette[i % len(palette)]
+
+            # 1. Semi-transparent highlight tint
+            d_overlay.rectangle([x1, y1, x2, y2], fill=style["fill"])
+
+            # 2. Glowing solid outline (3px thick)
+            for off in range(3):
+                d_img.rectangle([x1 - off, y1 - off, x2 + off, y2 + off], outline=style["stroke"])
+
+            # 3. High-tech HUD corner targeting brackets
+            c_len = min(16, int((x2 - x1) / 4), int((y2 - y1) / 4))
+            if c_len > 3:
+                for thick in range(4):
+                    d_img.line([(x1 - thick, y1), (x1 - thick, y1 + c_len)], fill=style["stroke"])
+                    d_img.line([(x1, y1 - thick), (x1 + c_len, y1 - thick)], fill=style["stroke"])
+                    d_img.line([(x2 + thick, y1), (x2 + thick, y1 + c_len)], fill=style["stroke"])
+                    d_img.line([(x2, y1 - thick), (x2 - c_len, y1 - thick)], fill=style["stroke"])
+                    d_img.line([(x1 - thick, y2), (x1 - thick, y2 - c_len)], fill=style["stroke"])
+                    d_img.line([(x1, y2 + thick), (x1 + c_len, y2 + thick)], fill=style["stroke"])
+                    d_img.line([(x2 + thick, y2), (x2 + thick, y2 - c_len)], fill=style["stroke"])
+                    d_img.line([(x2, y2 + thick), (x2 - c_len, y2 + thick)], fill=style["stroke"])
+
+            # 4. Text banner badge
+            label = b.get("label", f"Target {i+1}")
+            conf = b.get("confidence")
+            conf_str = f" {int(conf * 100)}%" if conf else ""
+            tag_text = f"{label}{conf_str}"
+            tw = len(tag_text) * 7 + 10
+            th = 18
+            bx1 = max(0, min(w - tw, x1))
+            by1 = max(0, y1 - th - 2) if y1 >= th + 2 else y1 + 4
+            d_img.rectangle([bx1, by1, bx1 + tw, by1 + th], fill=style["badge"])
+            d_img.text((bx1 + 5, by1 + 2), tag_text, fill=(255, 255, 255, 255))
+
+        composited = Image.alpha_composite(norm_img, overlay).convert("RGB")
+        buf = BytesIO()
+        composited.save(buf, format="PNG")
+        b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return f"data:image/png;base64,{b64_str}"
+    except Exception as exc:
+        logger.warning(f"Error drawing grounding boxes: {exc}")
+        return ""
+
+
 def _get_fallback_image_path() -> Optional[str]:
     candidates = [
         _ROOT / "scripts" / "sample_patch_rgb.png",
@@ -385,12 +470,16 @@ def grounding_node(state: SatQueryState) -> Dict[str, Any]:
         model_name = "InternVL2-8B"
         duration_ms = 1450.0
 
+    # Draw highlighted bounding box outlines and spectral HUD directly onto the satellite image
+    annotated_img_uri = draw_grounding_boxes(image_path, formatted_boxes)
+
     return {
         "tool_outputs": {
             **state.get("tool_outputs", {}),
             "grounding": {
                 "query": query,
                 "boxes": formatted_boxes,
+                "annotated_image": annotated_img_uri,
                 "answer": answer,
                 "confidence": 0.85 if formatted_boxes else 0.65,
                 "model": model_name,
@@ -662,8 +751,12 @@ def output_combinator(state: SatQueryState) -> Dict[str, Any]:
 
     elif "grounding" in tool_outputs:
         boxes = tool_outputs["grounding"].get("boxes", [])
+        annotated_image = tool_outputs["grounding"].get("annotated_image")
         final_answer = tool_outputs["grounding"].get("answer") or f"Located region(s) for: {tool_outputs['grounding'].get('query', '')}"
-        visual_evidence = {"boxes": boxes}
+        visual_evidence = {
+            "boxes": boxes,
+            "annotated_image": annotated_image,
+        }
         confidence = tool_outputs["grounding"].get("confidence", 0.85)
         model_used = tool_outputs["grounding"].get("model", "Google Gemini 3.8 Flash")
         execution_trace["models_used"] = [model_used]

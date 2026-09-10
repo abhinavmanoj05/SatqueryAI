@@ -29,6 +29,8 @@ export interface VisualEvidence {
   boxes?: BoundingBox[]
   /** Base64-encoded PNG or a URL to a change mask overlay or RGBA heatmap */
   change_mask?: string
+  /** Base64-encoded PNG of the satellite imagery with highlighted bounding box outlines and labels */
+  annotated_image?: string
   /** Top-k land-cover class predictions */
   top_k?: TopKClass[]
   /** Bi-temporal multi-channel quantitative metrics */
